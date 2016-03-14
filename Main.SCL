@@ -12,9 +12,6 @@ VAR
     HMIJobAdder : JobAdder;
     currentJob : Job;
     returnval : INT;
-    iManualMode : BOOL;
-    
-    tracktest : CarTrack;    
     (*
     sM2 : simCoreM;
     *)(*
@@ -52,7 +49,7 @@ oAlarms[3] := iEStop2;
 //oAlarms[6] := NOT iSafeGate3;
 //oAlarms[7] := NOT iSafeGate4;
 //oAlarms[8] := NOT iMainAirOn;
-tracktest();
+
 qMainAirOn := iEStopHealth; // air turned off under estop condition
 
 myResinStation( //iAmmount            := currentJob.resin_kg,

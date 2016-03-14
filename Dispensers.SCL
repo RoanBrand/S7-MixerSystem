@@ -196,28 +196,7 @@ CASE State OF
         IF (oldState <> State) THEN
             ;
         END_IF;
-    1 : // Dispensing Resin A into MixerCar
-        IF (oldState <> State) THEN
-            intState := 0;
-            PistonA.iDispense_Amount := iJob.resin_kg;
-            PistonA.iDispense_Start := true;
-            oComm_MixerCar := 3;
-            oldState := State;
-        END_IF;
-        CASE intState OF
-            0 : // wait for pistons to start
-                IF NOT (PistonA.oDispense_Done) THEN
-                    intState := 1;
-                END_IF;
-            1 : // wait for pistons to finish
-                IF (PistonA.oDispense_Done) THEN
-                    State := 2;
-                END_IF;
-        END_CASE;   
-        IF (oldState <> State) THEN
-            oComm_MixerCar := 0;
-        END_IF;
-    2 : // Dispensing Resin B into MixerCar
+    1 : // Dispensing Resin B into MixerCar
         IF (oldState <> State) THEN
             intState := 0;
             PistonB.iDispense_Amount := iJob.resin_kg;
@@ -231,7 +210,28 @@ CASE State OF
                     intState := 1;
                 END_IF;
             1 : // wait for pistons to finish
-                IF (PistonB.oDispense_Done) THEN    
+                IF (PistonB.oDispense_Done) THEN
+                    State := 2;
+                END_IF;
+        END_CASE;   
+        IF (oldState <> State) THEN
+            oComm_MixerCar := 0;
+        END_IF;
+    2 : // Dispensing Resin A into MixerCar
+        IF (oldState <> State) THEN
+            intState := 0;
+            PistonA.iDispense_Amount := iJob.resin_kg;
+            PistonA.iDispense_Start := true;
+            oComm_MixerCar := 3;
+            oldState := State;
+        END_IF;
+        CASE intState OF
+            0 : // wait for pistons to start
+                IF NOT (PistonA.oDispense_Done) THEN
+                    intState := 1;
+                END_IF;
+            1 : // wait for pistons to finish
+                IF (PistonA.oDispense_Done) THEN    
                     oComm_MixerCar := 4;
                     tTimer(IN := false);
                     intState := 2;

@@ -13,6 +13,7 @@ VAR_INPUT
     iProx2 : BOOL;
     iProx3 : BOOL;
     iProx4 : BOOL;              // Fifth Proxy on Track (Car Fully Forwarded)
+    iProx_Slow : BOOL;          // Slow run proxy
 (* Other *)
     desiredPos : INT;           // Desired Position of Car
 END_VAR
@@ -20,6 +21,7 @@ VAR_OUTPUT
 (* Physical Outputs Q *)
     oMotor_Fwd : BOOL;          // Move the Car Forward
     oMotor_Rev : BOOL;          // Reverse the Car
+    oMotor_Fast : BOOL;         // Run Motor at max speed.
     oParked : BOOL;             // is this car parked at destination?
 (* Alarms *)
     oAlarm_Position : BOOL;     // Alarm: Cannot confirm Car Position
@@ -36,21 +38,22 @@ VAR
     bit_cnt : INT;
 END_VAR
 BEGIN
-// Position
+// Convert Bits to Integer
 pos_bits[8] := iProx0;
 pos_bits[9] := iProx1;
 pos_bits[10] := iProx2;
 pos_bits[11] := iProx3;
 pos_bits[12] := iProx4;
 pos_test := INT_TO_WORD(actualPos);
+// Count HIGH bits
 bit_cnt := 0;
 WHILE (WORD_TO_INT(pos_test) <> 0) DO
-    IF (pos_test_b[12]) THEN
+    IF (pos_test_b[8]) THEN
         bit_cnt := bit_cnt + 1;
     END_IF;
     pos_test := SHR(IN := pos_test, N := 1);
 END_WHILE;
-oAlarm_Position := (bit_cnt > 1);
+oAlarm_Position := (bit_cnt > 1);   // Alarm if more than 1 HIGH
 IF (actualPos <> 0) AND NOT oAlarm_Position THEN
     lastPos := actualPos;
 END_IF;
@@ -59,9 +62,19 @@ IF ((desiredPos <> actualPos) AND NOT oAlarm_Position) THEN
         IF (desiredPos > lastPos) THEN
             oMotor_Fwd := true;
             oMotor_Rev := false;
+            IF ((lastPos * 2) = desiredPos) THEN
+                oMotor_Fast := NOT iProx_Slow;
+            ELSE
+                oMotor_Fast := true;
+            END_IF;
         ELSE
             oMotor_Fwd := false;
             oMotor_Rev := true;
+            IF ((lastPos / 2) = desiredPos) THEN
+                oMotor_Fast := NOT iProx_Slow;
+            ELSE
+                oMotor_Fast := true;
+            END_IF;
         END_IF;
     ELSE
         oMotor_Rev := true; // must check that cannot go past this limit
@@ -69,6 +82,7 @@ IF ((desiredPos <> actualPos) AND NOT oAlarm_Position) THEN
 ELSE
     oMotor_Fwd := false;
     oMotor_Rev := false;
+    oMotor_Fast := false;
 END_IF;
 tRunTime(IN := oMotor_Fwd OR oMotor_Rev, PT := t#3m);
 oAlarm_TO := tRunTime.Q;
@@ -87,6 +101,9 @@ This controls the complete Delivery Car unit and communicates with the MixerCar.
 VAR_INPUT
     iJob : Job;                 // Job given by MixerCar
     iComm_MixerCar : INT;       // Communication from MixerCar
+    
+    cleanMode : BOOL;           // Go to dump, open and wait
+    sendToDump : BOOL;          // Send current to Dump
 END_VAR
 VAR_OUTPUT    
     oComm_MixerCar : INT;       // Communication to MixerCar
@@ -114,11 +131,12 @@ myTrack(    iProx0          := iDelCar_Prox_MixCar,
             iProx1          := iDelCar_Prox_Dump,
             iProx2          := iDelCar_Prox_M1,
             iProx3          := iDelCar_Prox_M2,
-            iProx4          := iDelCar_Prox_M3
+            iProx4          := iDelCar_Prox_M3,
+            iProx_Slow      := iDelCar_Prox_Slow
 );
 qDelCar_MotorFwd    := myTrack.oMotor_Fwd;
 qDelCar_MotorRev    := myTrack.oMotor_Rev;
-qDelCar_MotorFast   := NOT iDelCar_Prox_Slow;
+qDelCar_MotorFast   := myTrack.oMotor_Fast;
 qDelCar_Siren       := qDelCar_MotorFwd XOR qDelCar_MotorRev;
 
 oAlarms[0] := iDelCar_MotorOL;
@@ -136,6 +154,8 @@ CASE State OF
         END_IF;
         IF (myTrack.actualPos = 1) THEN
             State := 1;
+        ELSIF (cleanMode) THEN
+            State := 5; 
         END_IF;
         IF (oldState <> State) THEN
             ;
@@ -147,7 +167,9 @@ CASE State OF
         END_IF;
         CASE intState OF
             0 : // Waiting for MixerCar
-                IF (iComm_MixerCar = 1) THEN
+                IF (cleanMode) THEN
+                    State := 5;
+                ELSIF (iComm_MixerCar = 1) THEN
                     oComm_MixerCar := 2;
                     intState := 1;
                 END_IF;
@@ -171,6 +193,8 @@ CASE State OF
             State := 3;
         ELSIF (iComm_MixerCar <> 3) THEN
             ;
+        ELSIF (sendToDump) THEN
+            Dump_Destination := 2;
         END_IF;
         IF (oldState <> State) THEN
             ;
@@ -182,6 +206,8 @@ CASE State OF
         END_IF;
         IF (myTrack.actualPos = myTrack.desiredPos) AND (myTrack.oParked) THEN
             State := 4;
+        ELSIF (sendToDump) THEN
+            myTrack.desiredPos := 2;
         END_IF;
         IF (oldState <> State) THEN
             ;
@@ -225,6 +251,24 @@ CASE State OF
             qDelCar_Vibrator := false;
             oAlarms[5] := false;
             oAlarms[6] := false;
+        END_IF;
+    5 : // Cleaning Mode
+        IF (oldState <> State) THEN
+            myTrack.desiredPos := 2;
+            oldState := State;
+        END_IF;
+        IF (myTrack.actualPos = 2) AND (myTrack.oParked) THEN
+            qDelCar_Piston_Open := NOT iDelCar_Piston_Open;
+            tTimer(IN := qDelCar_Piston_Open, PT := t#5s);
+            oAlarms[5] := tTimer.Q;
+        ELSIF NOT (cleanMode) THEN
+            qDelCar_Piston_Close := true;
+            IF (iDelCar_Piston_Closed) THEN
+                State := 0;
+            END_IF;
+        END_IF;
+        IF (oldState <> State) THEN
+            qDelCar_Piston_Close := false;
         END_IF;
 END_CASE;
 END_FUNCTION_BLOCK
@@ -272,11 +316,12 @@ END_VAR
 BEGIN
 myTrack(    iProx0          := iMixCar_Prox_Sand,
             iProx1          := iMixCar_Prox_Resin,
-            iProx2          := iMixCar_Prox_DelCar
+            iProx2          := iMixCar_Prox_DelCar,
+            iProx_Slow      := iMixCar_Prox_Slow
 );
 qMixCar_MotorFwd    := myTrack.oMotor_Fwd;
 qMixCar_MotorRev    := myTrack.oMotor_Rev;
-qMixCar_MotorFast   := NOT iMixCar_Prox_Slow;
+qMixCar_MotorFast   := myTrack.oMotor_Fast;
 qMixCar_Siren       := qMixCar_MotorFwd XOR qMixCar_MotorRev;
 
 oAlarms[0] := iMixCar_MotorOL;
@@ -343,9 +388,6 @@ CASE State OF
                     State := 3;
                 END_IF;
         END_CASE;
-            
-        
-        
         (*
         IF (iComm_SandCar = 4) THEN
             State := 3;
@@ -520,16 +562,22 @@ VAR
     zeroVal : INT := 5272;
     desiredWeightVal : INT;
     WeightCal : REAL := 22.6426;
+    
+(* Settings *)
+    startPulseWeight : REAL := 45.0;    // start closing valve if this many kg's left
+    pulseOpenTime : TIME    := t#1s;    // duration valve is open in final pulse fillup
+    endOffset : INT         := 16;      // uncalibrated sand-in-air ammount after final close
 END_VAR
 BEGIN
 myTrack(    iProx0          := iSandCar_Prox_MixCar,
             iProx1          := iSandCar_Prox_Silica,
-            iProx2          := iSandCar_Prox_Chrome
+            iProx2          := iSandCar_Prox_Chrome,
+            iProx_Slow      := iSandCar_Prox_Slow
 );
 IF (State <> 10) THEN
     qSandCar_MotorFwd   := myTrack.oMotor_Fwd;
     qSandCar_MotorRev   := myTrack.oMotor_Rev;
-    qSandCar_MotorFast  := NOT iSandCar_Prox_Slow;
+    qSandCar_MotorFast  := myTrack.oMotor_Fast;
 END_IF;
 qSandCar_Siren      := qSandCar_MotorFwd XOR qSandCar_MotorRev;
 
@@ -592,14 +640,14 @@ CASE State OF
             0 : // Wait for fillup
                 tTimer(IN := NOT iSilica_Open, PT := t#4s);
                 oAlarms[7] := tTimer.Q;
-                IF (((desiredWeightVal - WeightVal) / WeightCal) < 10.0) THEN   // Go to pulse if 10Kg left
+                IF (((desiredWeightVal - WeightVal) / WeightCal) < startPulseWeight) THEN
                     tTimer(IN := false);
                     intState := 1;
                 END_IF;
             1 : // Pulse close
                 tTimer(IN := true, PT := t#3s);
                 qSilica_Open := false;
-                IF (WeightVal >= (desiredWeightVal - 12)) THEN  // little bit under
+                IF (WeightVal >= (desiredWeightVal - endOffset)) THEN  // little bit under
                     tTimer(IN := false);
                     intState := 3;
                 ELSIF (tTimer.Q) THEN
@@ -608,9 +656,9 @@ CASE State OF
                     intState := 2;
                 END_IF;
             2 : // Pulse open
-                tTimer(IN := true, PT := t#2s);
+                tTimer(IN := true, PT := pulseOpenTime);
                 qSilica_Open := true;
-                IF (WeightVal >= (desiredWeightVal - 12)) THEN
+                IF (WeightVal >= (desiredWeightVal - endOffset)) THEN
                     tTimer(IN := false);
                     intState := 3;
                 ELSIF (tTimer.Q) THEN
@@ -660,14 +708,14 @@ CASE State OF
             0 : // Wait for fillup
                 tTimer(IN := NOT iChrome_Open, PT := t#4s);
                 oAlarms[10] := tTimer.Q;
-                IF (((desiredWeightVal - WeightVal) / WeightCal) < 10.0) THEN   // Go to pulse if 10Kg left
+                IF (((desiredWeightVal - WeightVal) / WeightCal) < startPulseWeight) THEN
                     tTimer(IN := false);
                     intState := 1;
                 END_IF;
             1 : // Pulse close
                 tTimer(IN := true, PT := t#3s);
                 qChrome_Open := false;
-                IF (WeightVal >= (desiredWeightVal - 12)) THEN  // little bit under
+                IF (WeightVal >= (desiredWeightVal - endOffset)) THEN  // little bit under
                     tTimer(IN := false);
                     intState := 3;
                 ELSIF (tTimer.Q) THEN
@@ -676,9 +724,9 @@ CASE State OF
                     intState := 2;
                 END_IF;
             2 : // Pulse open
-                tTimer(IN := true, PT := t#2s);
+                tTimer(IN := true, PT := pulseOpenTime);
                 qChrome_Open := true;
-                IF (WeightVal >= (desiredWeightVal - 12)) THEN
+                IF (WeightVal >= (desiredWeightVal - endOffset)) THEN
                     tTimer(IN := false);
                     intState := 3;
                 ELSIF (tTimer.Q) THEN
@@ -757,7 +805,6 @@ CASE State OF
             intState := 0;
             qSandCar_MotorFwd   := false;
             qSandCar_MotorRev   := false;
-            qSandCar_MotorFast  := false;
             qSandCar_Piston_Open := false;
             qSilica_Open := false;
             qChrome_Open := false;
@@ -770,7 +817,6 @@ CASE State OF
         IF (oldState <> State) THEN
             qSandCar_MotorFwd   := false;
             qSandCar_MotorRev   := false;
-            qSandCar_MotorFast  := false;
             qSandCar_Piston_Open := false;
             qSilica_Open := false;
             qChrome_Open := false;
