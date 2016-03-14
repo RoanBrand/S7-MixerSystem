@@ -155,7 +155,10 @@ CASE State OF
         IF (myTrack.actualPos = 1) THEN
             State := 1;
         ELSIF (cleanMode) THEN
-            State := 5; 
+            State := 5;
+        ELSIF (sendToDump) THEN
+            Dump_Destination := 2;
+            State := 3;
         END_IF;
         IF (oldState <> State) THEN
             ;
@@ -169,6 +172,9 @@ CASE State OF
             0 : // Waiting for MixerCar
                 IF (cleanMode) THEN
                     State := 5;
+                ELSIF (sendToDump) THEN
+                    Dump_Destination := 2;
+                    State := 3;
                 ELSIF (iComm_MixerCar = 1) THEN
                     oComm_MixerCar := 2;
                     intState := 1;
@@ -207,6 +213,7 @@ CASE State OF
         IF (myTrack.actualPos = myTrack.desiredPos) AND (myTrack.oParked) THEN
             State := 4;
         ELSIF (sendToDump) THEN
+            Dump_Destination := 2;
             myTrack.desiredPos := 2;
         END_IF;
         IF (oldState <> State) THEN
@@ -614,9 +621,11 @@ CASE State OF
         END_IF;
     1 : // Able to Start Job
         IF (oldState <> State) THEN
+            tTimer(IN := false);
             oldState := State;
         END_IF;
-        IF (iStartJob) THEN
+        tTimer(IN := true, PT := t#4s);
+        IF (iStartJob AND tTimer.Q) THEN
             myJob := iJob;
             iStartJob := false;
             IF (myJob.silica_kg > 0.0) THEN
@@ -634,7 +643,11 @@ CASE State OF
     2 : // Receiving Sand from Silica
         IF (oldState <> State) THEN
             tTimer(IN := false);
-            intState := 0;
+            IF (myJob.silica_kg > 20.0) THEN
+                intState := 0;
+            ELSE
+                intState := 2;
+            END_IF;
             desiredWeightVal := WeightVal + REAL_TO_INT(WeightCal * myJob.silica_kg); // upper limit?
             qSilica_Open := true;
             oldState := State;
@@ -661,8 +674,9 @@ CASE State OF
             2 : // Pulse open
                 tTimer(IN := true, PT := pulseOpenTime);
                 qSilica_Open := true;
-                IF (WeightVal >= (desiredWeightVal - endOffset)) THEN
+                IF (WeightVal >= (desiredWeightVal - (endOffset*2))) THEN
                     tTimer(IN := false);
+                    qSilica_Open := false;
                     intState := 3;
                 ELSIF (tTimer.Q) THEN
                     tTimer(IN := false);
@@ -670,8 +684,7 @@ CASE State OF
                 END_IF;
             3 : // wait for close
                 tTimer(IN := true, PT := t#8s);
-                oAlarms[8] := NOT iSilica_Closed;
-                qSilica_Open := false;
+                oAlarms[8] := NOT iSilica_Closed AND (tTimer.ET >= t#3s);
                 IF (iSilica_Closed OR tTimer.Q) THEN
                     (*
                     IF (myJob.chromite_kg > 0.0) THEN

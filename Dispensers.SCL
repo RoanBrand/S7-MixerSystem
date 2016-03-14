@@ -64,7 +64,8 @@ VAR_OUTPUT
     oAlarms[7]  ->  "Resin Piston Refill timeout" *)
 END_VAR
 VAR
-    oldState, State : INT;
+    oldState : INT := -1;
+    State : INT;
     xCalibration_Val : REAL := 1.272;   // Density - default: 1Kg/liter
     startLevel : INT;                   // Piston level record when started dispensing
     totalOutputAmount : REAL;           // Kg resin already output dispensed
@@ -97,13 +98,17 @@ oAlarms[4] := iValve_Flow_Tank AND iValve_Flow_Out;
 CASE State OF
     0 : // Standby
         IF (oldState <> State) THEN
+            tTimer(IN := false);
             oldState := State;
         END_IF;
+        tTimer(IN := true, PT := t#30m);
         IF (iDispense_Start AND (iDispense_Amount > 0.0)) THEN
             neededAmount := iDispense_Amount;
             totalOutputAmount := 0.0;
             oDispense_Done := false;
             State := 1;
+        ELSIF (tTimer.Q) THEN
+            State := 5;
         END_IF;
     1 : // Dispensing - PUSHING DOWN
         IF (oldState <> State) THEN
@@ -152,6 +157,24 @@ CASE State OF
             oAlarms[7] := false;
             oMotor_Up := false;
         END_IF;
+   5 :  // Valve Non-Freeze Cycle
+        IF (oldState <> State) THEN
+            tTimer(IN := false);
+            startLevel := 0; // just used here so need to make 2nd int
+            oldState := State;
+        END_IF;
+        tTimer(IN := true, PT := t#1s);
+        IF (tTimer.Q) THEN
+            tTimer(IN := false);
+            startLevel := startLevel + 1;
+            oValve_FlowDir := NOT oValve_FlowDir;
+        END_IF;
+        IF ((startLevel > 5) OR iDispense_Start) THEN
+            State := 0;
+        END_IF;
+        IF (oldState <> State) THEN
+            oValve_FlowDir := false;
+        END_IF;
 END_CASE;
 END_FUNCTION_BLOCK
 (******************************************************************************)
@@ -184,14 +207,20 @@ BEGIN
 CASE State OF
     0 : // Standby
         IF (oldState <> State) THEN
+            tTimer(IN := false);
             oComm_MixerCar := 1;
             oldState := State;
         END_IF;
+        tTimer(IN := true, PT := t#30m);
         // need ready condition check for 2 p
-        IF (iComm_MixerCar = 2) THEN
-            State := 1;
-        ELSIF iCalMode THEN
+        IF (iCalMode) THEN
+            oComm_MixerCar := 0;
             State := 3;
+        ELSIF (tTimer.Q) THEN
+            oComm_MixerCar := 0;
+            State := 5;
+        ELSIF (iComm_MixerCar = 2) THEN
+            State := 1;
         END_IF;
         IF (oldState <> State) THEN
             ;
@@ -257,12 +286,32 @@ CASE State OF
                 tTimer(IN := NOT iResinA_OutValveCal OR NOT iResinB_OutValveCal, PT := t#2s);
                 oAlarm_CalVA := tTimer.Q AND iResinA_OutValveCal;
                 oAlarm_CalVB := tTimer.Q AND iResinB_OutValveCal;
-        IF NOT iCalMode THEN
+        IF NOT (iCalMode) THEN
             State := 0;
         END_IF;
         IF (oldState <> State) THEN
             oAlarm_CalVA := false;
             oAlarm_CalVB := false;
+            qResinA_OutToCal := false;
+            qResinB_OutToCal := false;
+        END_IF;
+    5 : // Valve Non-Freeze Cycle
+        IF (oldState <> State) THEN
+            tTimer(IN := false);
+            intState := 0;
+            oldState := State;
+        END_IF;
+        tTimer(IN := true, PT := t#1s);
+        IF (tTimer.Q) THEN
+            tTimer(IN := false);
+            intState := intState + 1;
+            qResinA_OutToCal := NOT qResinA_OutToCal;
+            qResinB_OutToCal := NOT qResinB_OutToCal;
+        END_IF;
+        IF ((intState > 5) OR (iComm_MixerCar = 2)) THEN
+            State := 0;
+        END_IF;
+        IF (oldState <> State) THEN
             qResinA_OutToCal := false;
             qResinB_OutToCal := false;
         END_IF;

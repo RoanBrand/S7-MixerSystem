@@ -14,8 +14,8 @@ VAR
     returnval : INT;
     (*
     sM2 : simCoreM;
-    *)(*
-    sMixTrack : simTrack;
+    *)
+    (*sMixTrack : simTrack;
     sDelTrack : simTrack;
     sSandTrack : simTrack;
     
@@ -170,8 +170,8 @@ iDelCar_Piston_Closed := sDelDump.Closed;
 
 sSandDump(reqOpen := qSandCar_Piston_Open);
 iSandCar_Piston_Open := sSandDump.Opened;
-iSandCar_Piston_Closed := sSandDump.Closed;*)
-
+iSandCar_Piston_Closed := sSandDump.Closed;
+*)
 END_FUNCTION_BLOCK
 (******************************************************************************)
 ORGANIZATION_BLOCK OB1                  // main
