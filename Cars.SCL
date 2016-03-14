@@ -62,7 +62,7 @@ IF ((desiredPos <> actualPos) AND NOT oAlarm_Position) THEN
         IF (desiredPos > lastPos) THEN
             oMotor_Fwd := true;
             oMotor_Rev := false;
-            IF ((lastPos * 2) = desiredPos) THEN
+            IF ((lastPos * 2) >= desiredPos) THEN
                 oMotor_Fast := NOT iProx_Slow;
             ELSE
                 oMotor_Fast := true;
@@ -70,7 +70,7 @@ IF ((desiredPos <> actualPos) AND NOT oAlarm_Position) THEN
         ELSE
             oMotor_Fwd := false;
             oMotor_Rev := true;
-            IF ((lastPos / 2) = desiredPos) THEN
+            IF ((lastPos / 2) <= desiredPos) THEN
                 oMotor_Fast := NOT iProx_Slow;
             ELSE
                 oMotor_Fast := true;
@@ -257,18 +257,21 @@ CASE State OF
             myTrack.desiredPos := 2;
             oldState := State;
         END_IF;
-        IF (myTrack.actualPos = 2) AND (myTrack.oParked) THEN
-            qDelCar_Piston_Open := NOT iDelCar_Piston_Open;
-            tTimer(IN := qDelCar_Piston_Open, PT := t#5s);
-            oAlarms[5] := tTimer.Q;
-        ELSIF NOT (cleanMode) THEN
+        IF NOT (cleanMode) THEN
+            qDelCar_Piston_Open := false;
             qDelCar_Piston_Close := true;
             IF (iDelCar_Piston_Closed) THEN
                 State := 0;
             END_IF;
+        ELSIF (myTrack.actualPos = 2) AND (myTrack.oParked) THEN
+            qDelCar_Piston_Open := NOT iDelCar_Piston_Open;
+            tTimer(IN := qDelCar_Piston_Open, PT := t#5s);
+            oAlarms[5] := tTimer.Q;
         END_IF;
         IF (oldState <> State) THEN
+            qDelCar_Piston_Open := false;
             qDelCar_Piston_Close := false;
+            oAlarms[5] := false;
         END_IF;
 END_CASE;
 END_FUNCTION_BLOCK
