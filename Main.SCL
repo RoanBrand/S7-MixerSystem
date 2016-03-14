@@ -50,6 +50,13 @@ oAlarms[3] := iEStop2;
 //oAlarms[7] := NOT iSafeGate4;
 //oAlarms[8] := NOT iMainAirOn;
 
+// Floor Standing Mixer Man
+oAlarms[9] := NOT iFLMixerHealth;
+oAlarms[10] := iMixer2OL;
+IF (oAlarms[9]) THEN
+    qMixerSpare := false;
+END_IF;
+
 qMainAirOn := iEStopHealth; // air turned off under estop condition
 
 myResinStation( //iAmmount            := currentJob.resin_kg,

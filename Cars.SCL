@@ -143,7 +143,7 @@ oAlarms[0] := iDelCar_MotorOL;
 oAlarms[1] := NOT iDelCar_VSDHealth;
 oAlarms[2] := myTrack.oAlarm_Position;
 oAlarms[3] := myTrack.oAlarm_TO;
-oAlarms[4] := iSandCar_Piston_Open AND iSandCar_Piston_Closed;
+oAlarms[4] := iDelCar_Piston_Open AND iDelCar_Piston_Closed;
 oAlarms[7] := iMixer1OL;
 
 CASE State OF
@@ -356,7 +356,8 @@ CASE State OF
             State := 6;
         END_IF;
         IF (oldState <> State) THEN
-            ;
+            qMixCar_Piston_Open := false;
+            qMixCar_Piston_Close := false;
         END_IF;
     1 : // Able to Start Job
         IF (oldState <> State) THEN
@@ -397,12 +398,16 @@ CASE State OF
                 IF (iComm_SandCar = 4) THEN
                     intState := 1;
                 END_IF;
-            1 : // check if chrome or oxide needed
-                IF (myJob.chromite_kg > 0.0) OR (myJob.oxide_kg > 0.0) THEN
+            1 : // check if oxide needed
+                IF (myJob.oxide_kg > 0.0) THEN
                     oHandAdditionReq := true;
                     intState := 2;
                 ELSE
-                    State := 3;
+                    IF (myJob.resin_kg > 0.0) THEN
+                        State := 3;
+                    ELSE
+                        State := 6;
+                    END_IF;
                 END_IF;
             2 : // wait for confirmation
                 IF (iHandAdditionDone) THEN
@@ -492,6 +497,9 @@ CASE State OF
         IF (oldState <> State) THEN
             tTimer(IN := false);
             qMixer1On := true;
+            IF (myJob.MixTime = t#0s) THEN
+                myJob.MixTime := t#1ms; // hacky
+            END_IF;
             myTrack.desiredPos := 4;
             oldState := State;
         END_IF;
@@ -605,11 +613,13 @@ VAR
     zeroVal : INT := 5272;
     desiredWeightVal : INT;
     WeightCal : REAL := 22.6426;
+    fPulseOpen : BOOL;
     
 (* Settings *)
-    startPulseWeight : REAL := 45.0;    // start closing valve if this many kg's left
-    pulseOpenTime : TIME    := t#1s;    // duration valve is open in final pulse fillup
-    endOffset : INT         := 16;      // uncalibrated sand-in-air ammount after final close
+    startPulseWeight : REAL := 50.0;    // start closing valve if this many kg's left
+    pulseOpenTime1 : TIME   := t#1.7s;  // Stage 1 pulse fillup time
+    pulseOpenTime2 : TIME   := t#1.4s;  // Stage 2 pulse fillup time
+    endOffset : INT         := 24;      // uncalibrated sand-in-air ammount after final close
 END_VAR
 BEGIN
 myTrack(    iProx0          := iSandCar_Prox_MixCar,
@@ -676,59 +686,82 @@ CASE State OF
     2 : // Receiving Sand from Silica
         IF (oldState <> State) THEN
             tTimer(IN := false);
-            IF (myJob.silica_kg > 20.0) THEN
+            IF (myJob.silica_kg > startPulseWeight) THEN
                 intState := 0;
             ELSE
-                intState := 2;
+                fPulseOpen := true;
+                intState := 1;
             END_IF;
             desiredWeightVal := WeightVal + REAL_TO_INT(WeightCal * myJob.silica_kg); // upper limit?
-            qSilica_Open := true;
             oldState := State;
         END_IF;
         CASE intState OF
-            0 : // Wait for fillup
-                tTimer(IN := NOT iSilica_Open, PT := t#4s);
-                oAlarms[7] := tTimer.Q;
+            0 : // Stage 1 - Wait for fillup setpoint
+                //tTimer(IN := NOT iSilica_Open, PT := t#4s);
+                qSilica_Open := true;
+                //oAlarms[7] := tTimer.Q;
                 IF (((desiredWeightVal - WeightVal) / WeightCal) < startPulseWeight) THEN
                     tTimer(IN := false);
+                    fPulseOpen := false;
                     intState := 1;
                 END_IF;
-            1 : // Pulse close
-                tTimer(IN := true, PT := t#3s);
-                qSilica_Open := false;
+            1 : // Stage 2 - Pulse until 2Kg left
+                IF (fPulseOpen) THEN
+                    tTimer(IN := true, PT := pulseOpenTime1);
+                    qSilica_Open := true;
+                    IF (tTimer.Q) THEN
+                        tTimer(IN := false);
+                        fPulseOpen := false;
+                    END_IF;
+                ELSE
+                    tTimer(IN := true, PT := t#3s);
+                    qSilica_Open := false;
+                    IF (tTimer.Q) THEN
+                        tTimer(IN := false);
+                        fPulseOpen := true;
+                    END_IF;
+                END_IF;
                 IF (WeightVal >= (desiredWeightVal - endOffset)) THEN  // little bit under
                     tTimer(IN := false);
                     intState := 3;
-                ELSIF (tTimer.Q) THEN
-                    oAlarms[8] := NOT iSilica_Closed;
+                ELSIF (((desiredWeightVal - WeightVal) / WeightCal) < 4.0) THEN
                     tTimer(IN := false);
+                    fPulseOpen := false;
                     intState := 2;
                 END_IF;
-            2 : // Pulse open
-                tTimer(IN := true, PT := pulseOpenTime);
-                qSilica_Open := true;
-                IF (WeightVal >= (desiredWeightVal - (endOffset*2))) THEN
-                    tTimer(IN := false);
+            2 : // Stage 3 - Pulse until target (no more left)
+                IF (fPulseOpen) THEN
+                    tTimer(IN := true, PT := pulseOpenTime2);
+                    qSilica_Open := true;
+                    IF (tTimer.Q) THEN
+                        tTimer(IN := false);
+                        fPulseOpen := false;
+                    END_IF;
+                ELSE
+                    tTimer(IN := true, PT := t#3s);
                     qSilica_Open := false;
-                    intState := 3;
-                ELSIF (tTimer.Q) THEN
-                    tTimer(IN := false);
-                    intState := 1;
+                    IF (tTimer.Q) THEN
+                        tTimer(IN := false);
+                        fPulseOpen := true;
+                    END_IF;
                 END_IF;
+                IF (WeightVal >= (desiredWeightVal - endOffset)) THEN  // little bit under
+                    tTimer(IN := false);
+                    intState := 3;
+                END_IF;    
             3 : // wait for close
-                tTimer(IN := true, PT := t#8s);
-                oAlarms[8] := NOT iSilica_Closed AND (tTimer.ET >= t#3s);
-                IF (iSilica_Closed OR tTimer.Q) THEN
-                    (*
+                qSilica_Open := false;
+                tTimer(IN := true, PT := t#1.5s);
+                //oAlarms[8] := NOT iSilica_Closed AND (tTimer.ET >= t#3s);
+                IF (tTimer.Q) THEN
                     IF (myJob.chromite_kg > 0.0) THEN
                         myTrack.desiredPos := 4;
                         State := 3;
                     ELSE
                         State := 5;
-                    END_IF;*)
-                    State := 5;
+                    END_IF;
                 END_IF;
-        END_CASE;  
+        END_CASE;
         IF (oldState <> State) THEN
             qSilica_Open := false;
             oAlarms[7] := false;
@@ -748,46 +781,74 @@ CASE State OF
     4 : // Receiving Sand from Chrome
         IF (oldState <> State) THEN
             tTimer(IN := false);
-            intState := 0;
+            IF (myJob.chromite_kg > startPulseWeight) THEN
+                intState := 0;
+            ELSE
+                fPulseOpen := true;
+                intState := 1;
+            END_IF;
             desiredWeightVal := WeightVal + REAL_TO_INT(WeightCal * myJob.chromite_kg);
-            qChrome_Open := true;
             oldState := State;
         END_IF;
         CASE intState OF
-            0 : // Wait for fillup
-                tTimer(IN := NOT iChrome_Open, PT := t#4s);
-                oAlarms[10] := tTimer.Q;
+            0 : // Stage 1 - Wait for fillup setpoint
+                //tTimer(IN := NOT iSilica_Open, PT := t#4s);
+                qChrome_Open := true;
+                //oAlarms[7] := tTimer.Q;
                 IF (((desiredWeightVal - WeightVal) / WeightCal) < startPulseWeight) THEN
                     tTimer(IN := false);
+                    fPulseOpen := false;
                     intState := 1;
                 END_IF;
-            1 : // Pulse close
-                tTimer(IN := true, PT := t#3s);
-                qChrome_Open := false;
+            1 : // Stage 2 - Pulse until 2Kg left
+                IF (fPulseOpen) THEN
+                    tTimer(IN := true, PT := pulseOpenTime1);
+                    qChrome_Open := true;
+                    IF (tTimer.Q) THEN
+                        tTimer(IN := false);
+                        fPulseOpen := false;
+                    END_IF;
+                ELSE
+                    tTimer(IN := true, PT := t#3s);
+                    qChrome_Open := false;
+                    IF (tTimer.Q) THEN
+                        tTimer(IN := false);
+                        fPulseOpen := true;
+                    END_IF;
+                END_IF;
                 IF (WeightVal >= (desiredWeightVal - endOffset)) THEN  // little bit under
                     tTimer(IN := false);
                     intState := 3;
-                ELSIF (tTimer.Q) THEN
-                    oAlarms[11] := NOT iChrome_Closed;
+                ELSIF (((desiredWeightVal - WeightVal) / WeightCal) < 4.0) THEN
                     tTimer(IN := false);
+                    fPulseOpen := false;
                     intState := 2;
                 END_IF;
-            2 : // Pulse open
-                tTimer(IN := true, PT := pulseOpenTime);
-                qChrome_Open := true;
-                IF (WeightVal >= (desiredWeightVal - endOffset)) THEN
+            2 : // Stage 3 - Pulse until target (no more left)
+                IF (fPulseOpen) THEN
+                    tTimer(IN := true, PT := pulseOpenTime2);
+                    qChrome_Open := true;
+                    IF (tTimer.Q) THEN
+                        tTimer(IN := false);
+                        fPulseOpen := false;
+                    END_IF;
+                ELSE
+                    tTimer(IN := true, PT := t#3s);
+                    qChrome_Open := false;
+                    IF (tTimer.Q) THEN
+                        tTimer(IN := false);
+                        fPulseOpen := true;
+                    END_IF;
+                END_IF;
+                IF (WeightVal >= (desiredWeightVal - endOffset)) THEN  // little bit under
                     tTimer(IN := false);
                     intState := 3;
-                ELSIF (tTimer.Q) THEN
-                    tTimer(IN := false);
-                    intState := 1;
                 END_IF;
             3 : // wait for close
-                State := 5;
-                tTimer(IN := true, PT := t#8s);
-                oAlarms[8] := NOT iSilica_Closed;
                 qChrome_Open := false;
-                IF (iSilica_Closed OR tTimer.Q) THEN 
+                tTimer(IN := true, PT := t#1.5s);
+                //oAlarms[8] := NOT iSilica_Closed AND (tTimer.ET >= t#3s);
+                IF (tTimer.Q) THEN
                     State := 5;
                 END_IF;
         END_CASE;  
@@ -821,9 +882,9 @@ CASE State OF
                     intState := 1;
                 END_IF;
             1 : // Open Dump Valve
-                tTimer(IN := true, PT := t#10s);
-                oAlarms[5] := (tTimer.ET >= t#5s);
-                IF (iSandCar_Piston_Open OR tTimer.Q) THEN
+                tTimer(IN := true, PT := t#2s);
+                //oAlarms[5] := (tTimer.ET >= t#5s);
+                IF (tTimer.Q) THEN
                     tTimer(IN := false);
                     intState := 2;
                 END_IF;
@@ -836,9 +897,9 @@ CASE State OF
                     intState := 3;
                 END_IF;
             3 : // Close Dump Valve
-                tTimer(IN := true, PT := t#10s);
-                oAlarms[6] := (tTimer.ET >= t#5s);
-                IF (iSandCar_Piston_Closed OR tTimer.Q) THEN
+                tTimer(IN := true, PT := t#3s);
+               // oAlarms[6] := (tTimer.ET >= t#5s);
+                IF (tTimer.Q) THEN
                     State := 0;
                 END_IF;
         END_CASE;

@@ -107,6 +107,9 @@ CASE State OF
             totalOutputAmount := 0.0;
             oDispense_Done := false;
             State := 1;
+        ELSIF (iLevelSensor > 17240) THEN
+            oDispense_Done := true;
+            State := 2;
         ELSIF (tTimer.Q) THEN
             State := 5;
         END_IF;
