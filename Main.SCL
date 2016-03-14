@@ -1,0 +1,188 @@
+FUNCTION_BLOCK Main
+VAR
+    myResinStation : ResinDisp;
+    mySandCar : SandCar;
+    myMixCar : MixerCar;
+    myDelCar : DeliveryCar;
+    DumpBin : CoreMachine;
+    CoreM1 : CoreMachine;
+    CoreM2 : CoreMachine;
+    CoreM3 : CoreMachine;
+    
+    HMIJobAdder : JobAdder;
+    currentJob : Job;
+    returnval : INT;
+    iManualMode : BOOL;
+    
+    tracktest : CarTrack;    
+    (*
+    sM2 : simCoreM;
+    *)(*
+    sMixTrack : simTrack;
+    sDelTrack : simTrack;
+    sSandTrack : simTrack;
+    
+    sRes1, sRes2 : simCylinder;
+    sMixDump, sDelDump : simDumpValve;
+    sSandDump : simSandValve;
+    sSand : simSand;*)
+END_VAR
+VAR_OUTPUT
+(* Alarms *)
+    oAlarmsOut : WORD;
+    oAlarms AT oAlarmsOut : ARRAY[0..15] OF BOOL;
+(*  oAlarms[0]  ->  "ESTOP Relay triggered"
+    oAlarms[1]  ->  "SafetyGate Relay triggered"
+    oAlarms[2]  ->  "EStop button 1 pressed"
+    oAlarms[3]  ->  "EStop button 2 pressed"
+    oAlarms[4]  ->  "Safety Gate 1 Open"
+    oAlarms[5]  ->  "Safety Gate 2 Open"
+    oAlarms[6]  ->  "Safety Gate 3 Open"
+    oAlarms[7]  ->  "Safety Gate 4 Open"
+    oAlarms[8]  ->  "Main Air Contactor not Energized" *)
+END_VAR
+BEGIN
+// Faults and alarms
+oAlarms[0] := NOT iEStopHealth;
+oAlarms[1] := NOT iSafeGateHealth;
+oAlarms[2] := iEStop1;
+oAlarms[3] := iEStop2;
+//oAlarms[4] := NOT iSafeGate1;
+//oAlarms[5] := NOT iSafeGate2;
+//oAlarms[6] := NOT iSafeGate3;
+//oAlarms[7] := NOT iSafeGate4;
+//oAlarms[8] := NOT iMainAirOn;
+tracktest();
+qMainAirOn := iEStopHealth; // air turned off under estop condition
+
+myResinStation( //iAmmount            := currentJob.resin_kg,
+                iJob                := myMixCar.oJob,
+                iComm_MixerCar      := myMixCar.oComm_ResinDisp
+);
+mySandCar(      WeightVal           := WORD_TO_INT(aSandScaleSignal),
+                iComm_MixerCar      := myMixCar.oComm_SandCar
+);
+myMixCar(       iJob                := mySandCar.oJob,
+                iComm_SandCar       := mySandCar.oComm_MixerCar,
+                iComm_ResinDisp     := myResinStation.oComm_MixerCar,
+                iComm_DeliveryCar   := myDelCar.oComm_MixerCar
+);
+myDelCar(       iJob                := myMixCar.oJob,
+                iComm_MixerCar      := myMixCar.oComm_DeliveryCar
+);
+
+DumpBin(        iTrackPos           := 2);
+CoreM1(         iRecipeBCD1         := iM1Recipe1,
+                iRecipeBCD2         := iM1Recipe2,
+                iRecipeBCD4         := iM1Recipe4,
+                iRecipeBCD8         := iM1Recipe8,
+                iWeightBCD1         := iM1Weight1,
+                iWeightBCD2         := iM1Weight2,
+                iRequest            := iM1Request,
+                iTrackPos           := 4
+);
+CoreM2(         iRecipeBCD1         := iM2Recipe1,
+                iRecipeBCD2         := iM2Recipe2,
+                iRecipeBCD4         := iM2Recipe4,
+                iRecipeBCD8         := iM2Recipe8,
+                iWeightBCD1         := iM2Weight1,
+                iWeightBCD2         := iM2Weight2,
+                iRequest            := iM2Request,
+                iTrackPos           := 8
+);
+CoreM3(         iRecipeBCD1         := iM3Recipe1,
+                iRecipeBCD2         := iM3Recipe2,
+                iRecipeBCD4         := iM3Recipe4,
+                iRecipeBCD8         := iM3Recipe8,
+                iWeightBCD1         := iM3Weight1,
+                iWeightBCD2         := iM3Weight2,
+                iRequest            := iM3Request,
+                iTrackPos           := 16
+);
+HMIJobAdder(); // HMI sets parameters
+
+IF ((mySandCar.State = 1) AND (myMixCar.State = 1) AND NOT Queue.fEmpty) THEN
+    returnval := popJob(peekOnly := false, oJob := currentJob);
+    IF returnval = 0 THEN
+        mySandCar.iJob := currentJob;
+        mySandCar.iStartJob := true;
+    END_IF;
+END_IF;
+(*
+// Simulations and Tests
+sSand(reqFill := qSilica_Open OR qChrome_Open, reqDump := iSandCar_Piston_Open);
+aSandScaleSignal := INT_TO_WORD(sSand.Weight);
+
+sSandTrack(Fwd := mySandCar.myTrack.oMotor_Fwd, Rev := mySandCar.myTrack.oMotor_Rev);
+iSandCar_Prox_MixCar   := sSandTrack.Prox0;
+iSandCar_Prox_Silica  := sSandTrack.Prox1;
+iSandCar_Prox_Chrome := sSandTrack.Prox2;
+
+sMixTrack(Fwd := myMixCar.myTrack.oMotor_Fwd, Rev := myMixCar.myTrack.oMotor_Rev);
+iMixCar_Prox_Sand   := sMixTrack.Prox0;
+iMixCar_Prox_Resin  := sMixTrack.Prox1;
+iMixCar_Prox_DelCar := sMixTrack.Prox2;
+
+sDelTrack(Fwd := myDelCar.myTrack.oMotor_Fwd, Rev := myDelCar.myTrack.oMotor_Rev);
+iDelCar_Prox_MixCar := sDelTrack.Prox0;
+iDelCar_Prox_Dump   := sDelTrack.Prox1;
+iDelCar_Prox_M1     := sDelTrack.Prox2;
+iDelCar_Prox_M2     := sDelTrack.Prox3;
+iDelCar_Prox_M3     := sDelTrack.Prox4;
+(*
+sM2();
+iM2Recipe1 := sM2.RecipeBCD1;
+iM2Recipe2 := sM2.RecipeBCD2;
+iM2Recipe4 := sM2.RecipeBCD4;
+iM2Recipe8 := sM2.RecipeBCD8;
+iM2Weight1 := sM2.WeightBCD1;
+iM2Weight2 := sM2.WeightBCD2;
+iM2Request := sM2.Request;*)
+
+sRes1(DownOut := qResinA_MotorDwn, UpIn := qResinA_MotorUp, Refill := qResinA_Refill, Dir := qResinA_OutToValve, Out := qResinA_OutToCal);
+iResinA_LevelH := sRes1.Tank_H;
+iResinA_LevelL := sRes1.Tank_L;
+aResinASignal := INT_TO_WORD(sRes1.Level);
+iResinA_LimitUp := sRes1.Limit_Up;
+iResinA_LimitDwn := sRes1.Limit_Down;
+iResinA_FlowValveTank := sRes1.DirV_Tank;
+iResinA_FlowValveOut := sRes1.DirV_Out;
+iResinA_OutValveMix := sRes1.OutV_Mix;
+iResinA_OutValveCal := sRes1.OutV_Cal;
+iResinA_RefillClosed := true;
+
+sRes2(DownOut := qResinB_MotorDwn, UpIn := qResinB_MotorUp, Refill := qResinB_Refill, Dir := qResinB_OutToValve, Out := qResinB_OutToCal);
+iResinB_LevelH := sRes2.Tank_H;
+iResinB_LevelL := sRes2.Tank_L;
+aResinBSignal := INT_TO_WORD(sRes2.Level);
+iResinB_LimitUp := sRes2.Limit_Up;
+iResinB_LimitDwn := sRes2.Limit_Down;
+iResinB_FlowValveTank := sRes2.DirV_Tank;
+iResinB_FlowValveOut := sRes2.DirV_Out;
+iResinB_OutValveMix := sRes2.OutV_Mix;
+iResinB_OutValveCal := sRes2.OutV_Cal;
+iResinB_RefillClosed := true;
+
+sMixDump(reqOpen := qMixCar_Piston_Open, reqClose := qMixCar_Piston_Close);
+iMixCar_Piston_Open := sMixDump.Opened;
+iMixCar_Piston_Closed := sMixDump.Closed;
+
+sDelDump(reqOpen := qDelCar_Piston_Open, reqClose := qDelCar_Piston_Close);
+iDelCar_Piston_Open := sDelDump.Opened;
+iDelCar_Piston_Closed := sDelDump.Closed;
+
+sSandDump(reqOpen := qSandCar_Piston_Open);
+iSandCar_Piston_Open := sSandDump.Opened;
+iSandCar_Piston_Closed := sSandDump.Closed;*)
+
+END_FUNCTION_BLOCK
+(******************************************************************************)
+ORGANIZATION_BLOCK OB1                  // main
+VAR_TEMP
+    // Reserved
+    info : ARRAY[0..19] OF BYTE;
+    // DO NOT REMOVE
+END_VAR
+BEGIN
+   Main.DB100();   // call main control function
+END_ORGANIZATION_BLOCK

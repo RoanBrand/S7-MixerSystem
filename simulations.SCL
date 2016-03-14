@@ -1,0 +1,225 @@
+FUNCTION_BLOCK simTrack
+VAR_INPUT
+    Fwd : BOOL;
+    Rev : BOOL;
+END_VAR
+VAR_OUTPUT
+    Prox0 : BOOL;
+    Prox1 : BOOL;
+    Prox2 : BOOL;
+    Prox3 : BOOL;
+    Prox4 : BOOL;
+END_VAR
+VAR
+    onDelay : sfb4;
+    faultOverRun : sfb4; Prox1V : BOOL;
+    trackPos : INT;
+    oldlevel : BOOL;
+END_VAR
+BEGIN
+IF Fwd AND NOT Rev THEN
+    IF m0.1 AND NOT oldlevel THEN
+        trackPos := trackPos + 1;
+    END_IF;
+ELSIF Rev AND NOT Fwd THEN
+    IF m0.1 AND NOT oldlevel THEN
+        trackPos := trackPos - 1;
+    END_IF;
+END_IF;
+oldlevel := m0.1;
+IF trackPos > 165 THEN
+    trackPos := 165;
+ELSIF trackPos < 0 THEN
+    trackPos := 0;
+END_IF;
+Prox0 := false;
+Prox1 := false;
+Prox2 := false;
+Prox3 := false;
+Prox4 := false;
+CASE trackPos OF
+     0..5 : Prox0 := true;
+   40..45 : Prox1 := true;
+   80..85 : Prox2 := true;
+ 120..125 : Prox3 := true;
+ 160..165 : Prox4 := true;
+END_CASE;
+(*
+faultOverRun(IN := Prox1, PT := t#300ms);
+IF faultOverRun.q THEN
+    IF NOT Rev THEN
+    trackPos := 50;
+    END_IF;
+    faultOverRun(IN := false);
+END_IF;*)
+
+END_FUNCTION_BLOCK
+(******************************************************************************)
+FUNCTION_BLOCK simCoreM
+VAR_OUTPUT
+    RecipeBCD1 : BOOL;
+    RecipeBCD2 : BOOL;
+    RecipeBCD4 : BOOL;
+    RecipeBCD8 : BOOL;
+    WeightBCD1 : BOOL;
+    WeightBCD2 : BOOL;
+    Request : BOOL;
+END_VAR
+VAR
+    Recipe : INT;
+    mapRecipe AT Recipe : ARRAY[0..15] OF BOOL;
+    Weight : INT;
+    mapWeight AT Weight : ARRAY[0..15] OF BOOL;
+    
+    Req : BOOL;
+END_VAR
+BEGIN
+RecipeBCD1 := mapRecipe[8];
+RecipeBCD2 := mapRecipe[9];
+RecipeBCD4 := mapRecipe[10];
+RecipeBCD8 := mapRecipe[11];
+WeightBCD1 := mapWeight[8];
+WeightBCD2 := mapWeight[9];
+Request := Req;
+END_FUNCTION_BLOCK
+(******************************************************************************)
+FUNCTION_BLOCK simCylinder
+VAR_INPUT
+    // Piston Motor
+    DownOut : BOOL;
+    UpIn : BOOL;
+    // Valves
+    Refill : BOOL; // 1-Open refill valve
+    Dir : BOOL; // 0-To tank; 1-To Out
+    Out : BOOL; // 0-To Mix; 1-To Cal
+END_VAR
+VAR_OUTPUT
+    // Resin Piston
+    Limit_Up : BOOL;
+    Limit_Down : BOOL;
+    Level : INT := 10000;
+    // Valves
+    RefillV_Closed : BOOL;
+    DirV_Out : BOOL;
+    DirV_Tank : BOOL;
+    OutV_Cal : BOOL;
+    OutV_Mix : BOOL;
+    // Tank
+    Tank_H : BOOL;
+    Tank_L : BOOL;
+END_VAR
+VAR
+    State : INT;
+    tLevel, tRefillV, tDirV, tOutV : sfb4;
+END_VAR
+BEGIN
+// Valves
+tRefillV(IN := NOT Refill, PT := t#400ms);
+RefillV_Closed := tRefillV.Q;
+
+tDirV(IN := Dir, PT := t#400ms);
+DirV_Out := tDirV.Q;
+DirV_Tank := NOT DirV_Out;
+
+tOutV(IN := Out, PT := t#400ms);
+OutV_Cal := tOutV.Q;
+OutV_Mix := NOT OutV_Cal;
+
+
+// Resin Piston
+IF DownOut AND NOT UpIn AND NOT Limit_Down THEN
+    Limit_Up := false;
+    IF (Level < 23712) THEN
+        tLevel(IN := true, PT := t#10ms);
+        IF tLevel.Q THEN
+            tLevel(IN := false);
+            Level := Level + 16; // works out 29s on sim
+        END_IF;
+    ELSE
+        Limit_Down := true;
+    END_IF;
+ELSIF UpIn AND NOT DownOut AND NOT Limit_Up THEN
+    Limit_Down := false;
+    IF (Level > 1120) THEN
+        tLevel(IN := true, PT := t#10ms);
+        IF tLevel.Q THEN
+            tLevel(IN := false);
+            Level := Level - 16;
+        END_IF;
+    ELSE
+        Limit_Up := true;
+    END_IF;
+END_IF;
+END_FUNCTION_BLOCK
+(******************************************************************************)
+FUNCTION_BLOCK simDumpValve
+VAR_INPUT
+    reqOpen : BOOL;
+    reqClose : BOOL;
+END_VAR
+VAR_OUTPUT
+    Opened : BOOL;
+    Closed : BOOL;
+END_VAR
+VAR
+    tTimer : sfb4;
+    opening : BOOL; //false = closing
+END_VAR
+BEGIN
+IF reqOpen AND NOT reqClose THEN
+    opening := true;
+ELSIF reqClose AND NOT reqOpen THEN
+    opening := false;
+END_IF;
+tTimer(IN := opening, PT := t#1s); 
+Opened := tTimer.Q;
+Closed := tTimer.ET = t#0s;
+END_FUNCTION_BLOCK
+(******************************************************************************)
+FUNCTION_BLOCK simSandValve
+VAR_INPUT
+    reqOpen : BOOL;
+END_VAR
+VAR_OUTPUT
+    Opened : BOOL;
+    Closed : BOOL;
+END_VAR
+VAR
+    tTimer : sfb4;
+END_VAR
+BEGIN
+tTimer(IN := reqOpen, PT := t#1s);
+Opened := tTimer.Q;
+Closed := NOT Opened;
+END_FUNCTION_BLOCK
+(******************************************************************************)
+FUNCTION_BLOCK simSand
+VAR_INPUT
+    reqFill : BOOL;
+    reqDump : BOOL;
+END_VAR
+VAR_OUTPUT
+    Weight : INT := 5272;
+END_VAR
+VAR
+    tLevel : sfb4;
+BEGIN
+//scale
+IF reqFill THEN
+    IF Weight < 16600 THEN
+        tLevel(IN := true, PT := t#10ms);
+        IF tLevel.Q THEN
+            tLevel(IN := false);
+            Weight := Weight + 16;
+        END_IF;
+    END_IF;
+ELSIF reqDump THEN
+    IF Weight > 5272 THEN
+        tLevel(IN := true, PT := t#10ms);
+        IF tLevel.Q THEN
+            tLevel(IN := false);
+            Weight := Weight - 16;
+        END_IF;
+    END_IF;
+END_IF;
+END_FUNCTION_BLOCK

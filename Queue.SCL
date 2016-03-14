@@ -1,0 +1,256 @@
+TYPE Job
+    STRUCT
+        silica_kg : REAL;
+        chromite_kg : REAL;
+        oxide_kg : REAL;
+        resin_kg : REAL;
+        preMixTime : TIME;      // time to mix before resin addition
+        MixTime : TIME;         // time to mix after resin addition
+        Destination : INT;
+    END_STRUCT
+END_TYPE
+(******************************************************************************)
+DATA_BLOCK Queue
+STRUCT
+    // QUEUE
+    qFIFO : ARRAY[0..2] OF Job;
+    // Flags
+    pInsert : INT;
+    pRemove : INT;
+    fFull : BOOL;
+    fEmpty : BOOL;
+    // Other
+    lastDestination : INT;
+END_STRUCT
+BEGIN
+    fEmpty := true;
+END_DATA_BLOCK
+(******************************************************************************)
+FUNCTION addJob : INT
+VAR_INPUT
+    iJob : Job;
+END_VAR
+VAR_TEMP
+    i : INT;
+END_VAR
+BEGIN
+// Check if queue not full
+IF (Queue.fFull) THEN
+    addJob := 1;
+    RETURN;
+END_IF;
+// Check if job parameters correct (make sense)
+IF ((iJob.Destination < 2) OR (iJob.Destination > 16)) THEN
+    addJob := 3;
+    RETURN;
+END_IF;
+// Check if job not previously handled
+IF (iJob.Destination = Queue.lastDestination) AND NOT (Queue.fEmpty) THEN
+    addJob := 2;
+    RETURN;
+END_IF;
+// Check if job for shute is not already in queue
+IF (Queue.pInsert > Queue.pRemove) THEN
+    FOR i := Queue.pRemove TO (Queue.pInsert - 1) BY 1 DO
+        IF (iJob.Destination = Queue.qFIFO[i].Destination) THEN
+            addJob := 2;
+            RETURN;
+        END_IF;
+    END_FOR;
+ELSIF (Queue.pInsert < Queue.pRemove) THEN
+    FOR i := Queue.pRemove TO 2 BY 1 DO
+        IF (iJob.Destination = Queue.qFIFO[i].Destination) THEN
+            addJob := 2;
+            RETURN;
+        END_IF;
+    END_FOR;
+    FOR i := 0 TO (Queue.pInsert - 1) BY 1 DO
+        IF (iJob.Destination = Queue.qFIFO[i].Destination) THEN
+            addJob := 2;
+            RETURN;
+        END_IF;
+        
+    END_FOR;
+END_IF;
+// Add the job to the queue
+Queue.qFIFO[Queue.pInsert] := iJob;
+Queue.pInsert := (Queue.pInsert + 1) MOD 3;
+Queue.fFull := (Queue.pInsert = Queue.pRemove);
+Queue.fEmpty := false;
+addJob := 0;
+END_FUNCTION
+(******************************************************************************)
+FUNCTION popJob : INT
+VAR_INPUT
+    peekOnly : BOOL; // Do not remove from queue
+END_VAR
+VAR_OUTPUT
+    oJob : Job;
+END_VAR
+BEGIN
+// Check if queue not empty
+IF (Queue.fEmpty) THEN
+    popJob := 1;
+    RETURN;
+END_IF;
+// Get the job from the queue
+oJob := Queue.qFIFO[Queue.pRemove];
+IF NOT peekOnly THEN
+    Queue.pRemove := (Queue.pRemove + 1) MOD 3;
+    Queue.fEmpty := (Queue.pRemove = Queue.pInsert);
+    Queue.fFull := false;
+    Queue.lastDestination := oJob.Destination;
+END_IF;
+popJob := 0;
+END_FUNCTION
+(******************************************************************************)
+DATA_BLOCK Recipes
+STRUCT
+    SM : ARRAY[1..11] OF Job;
+END_STRUCT
+BEGIN
+    SM[1].silica_kg := 12.2;//50.0;
+    SM[1].resin_kg := 1.0;//30.25;
+    SM[1].preMixTime := t#30s;
+    SM[1].MixTime := t#2m;
+    
+    SM[2].silica_kg := 50.0;
+    SM[2].resin_kg := 0.3;
+    SM[2].preMixTime := t#30s;
+    SM[2].MixTime := t#2m;
+    
+    SM[3].silica_kg := 50.0;
+    SM[3].resin_kg := 0.4;
+    SM[3].preMixTime := t#30s;
+    SM[3].MixTime := t#2m;
+    
+    SM[4].silica_kg := 50.0;
+    SM[4].resin_kg := 0.375;
+    SM[4].chromite_kg := 15.0;
+    SM[4].preMixTime := t#30s;
+    SM[4].MixTime := t#2m;
+    
+    SM[5].silica_kg := 25.0;
+    SM[5].resin_kg := 0.45;
+    SM[5].chromite_kg := 25.0;
+    SM[5].preMixTime := t#30s;
+    SM[5].MixTime := t#2m;
+    
+    SM[6].resin_kg := 0.35;
+    SM[6].chromite_kg := 50.0;
+    SM[6].preMixTime := t#30s;
+    SM[6].MixTime := t#2m;
+    
+    SM[7].silica_kg := 15.0;
+    SM[7].resin_kg := 0.45;
+    SM[7].chromite_kg := 35.0;
+    SM[7].preMixTime := t#30s;
+    SM[7].MixTime := t#2m;
+    
+    SM[8].silica_kg := 35.0;
+    SM[8].resin_kg := 0.45;
+    SM[8].chromite_kg := 15.0;
+    SM[8].preMixTime := t#30s;
+    SM[8].MixTime := t#2m;
+    
+    SM[9].silica_kg := 25.0;
+    SM[9].resin_kg := 0.375;
+    SM[9].chromite_kg := 25.0;
+    SM[9].preMixTime := t#30s;
+    SM[9].MixTime := t#2m;
+    
+    SM[10].silica_kg := 25.0;
+    SM[10].resin_kg := 0.325;
+    SM[10].chromite_kg := 25.0;
+    SM[10].preMixTime := t#30s;
+    SM[10].MixTime := t#2m;
+    
+    SM[11].silica_kg := 50.0;
+    SM[11].resin_kg := 0.325;
+    SM[11].preMixTime := t#30s;
+    SM[11].MixTime := t#2m;
+END_DATA_BLOCK
+(******************************************************************************)
+FUNCTION_BLOCK CoreMachine
+VAR_INPUT
+    iRecipeBCD1 : BOOL;
+    iRecipeBCD2 : BOOL;
+    iRecipeBCD4 : BOOL;
+    iRecipeBCD8 : BOOL;
+    iWeightBCD1 : BOOL;
+    iWeightBCD2 : BOOL;
+    iRequest : BOOL;
+    iTrackPos : INT;
+END_VAR
+VAR_TEMP
+    myJob : Job;
+END_VAR
+VAR
+    fRequest : BOOL;
+    recipe : INT;
+    weight : INT;
+    statusAddJob : INT;
+END_VAR
+BEGIN
+IF (iRequest AND NOT fRequest) THEN
+    recipe := 1;
+    weight := 0;
+    IF (iRecipeBCD1) THEN
+        recipe := recipe + 1;
+    END_IF;
+    IF (iRecipeBCD2) THEN
+        recipe := recipe + 2;
+    END_IF;
+    IF (iRecipeBCD4) THEN
+        recipe := recipe + 4;
+    END_IF;
+    IF (iRecipeBCD8) THEN
+        recipe := recipe + 8;
+    END_IF;
+    IF (iWeightBCD1) THEN
+        weight := weight + 1;
+    END_IF;
+    IF (iWeightBCD2) THEN
+        weight := weight + 1;
+    END_IF;
+    myJob := Recipes.SM[recipe];
+    myJob.Destination := iTrackPos;
+    IF (weight > 0) THEN
+        myJob.silica_kg := myJob.silica_kg * weight * 2;
+        myJob.chromite_kg := myJob.chromite_kg * weight * 2;
+        myJob.oxide_kg := myJob.oxide_kg * weight * 2;
+        myJob.resin_kg := myJob.resin_kg * weight * 2;
+        myJob.Destination := iTrackPos;
+    END_IF;
+    statusAddJob := addJob(iJob := myJob);
+END_IF;
+fRequest := iRequest;
+END_FUNCTION_BLOCK
+(******************************************************************************)
+FUNCTION_BLOCK JobAdder
+VAR
+    fRequest : BOOL;
+    recipe : INT := 1;
+    weight : INT := 0;
+    iRequest : BOOL;
+    iTrackPos : INT := 2;
+    statusAddJob : INT;
+END_VAR
+VAR_TEMP
+    myJob : Job;
+END_VAR
+BEGIN
+IF (iRequest AND NOT fRequest) THEN
+    myJob := Recipes.SM[recipe];
+    myJob.Destination := iTrackPos;
+    IF (weight > 0) THEN
+        myJob.silica_kg := myJob.silica_kg * weight * 2;
+        myJob.chromite_kg := myJob.chromite_kg * weight * 2;
+        myJob.oxide_kg := myJob.oxide_kg * weight * 2;
+        myJob.resin_kg := myJob.resin_kg * weight * 2;
+        myJob.Destination := iTrackPos;
+    END_IF;
+    statusAddJob := addJob(iJob := myJob);
+END_IF;
+fRequest := iRequest;
+END_FUNCTION_BLOCK

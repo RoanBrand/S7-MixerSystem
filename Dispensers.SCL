@@ -1,0 +1,301 @@
+FUNCTION_BLOCK ResinCylinder
+TITLE = 'Resin Dispensing Cylinder'
+VERSION : '1.0'
+KNOW_HOW_PROTECT
+AUTHOR : 'RF Brand'
+(***************************************************************************************
+This controls a general resin piston with tank refill and flow direction valve.
+
+Using equations:    Volume = PI * radius^2 * height
+                    1 Litre = 1000cm^3
+                    height = (PLC input value difference) * CorrectionValue1
+                    Weight = Volume * CorrectionValue2
+                    
+CorrectionValue1 needed to scale linear transducer to actual distance moved by piston.
+CorrectionValue2 (Density factor) needed to convert volume to weight (1 Kg/litre for pure water).
+radius = 6cm, total height stroke = 44cm, PLC@max = 23712, PLC@min = 1120.
+
+We work out this final equation using values and combining correction factors:
+
+Kg Dispensed = (PLC input value difference) * (Calibration Factor) / 4540
+****************************************************************************************)
+VAR_INPUT
+(* Physical Inputs I *)
+    // Resin Tank Level Switch
+    iTank_Level_High : BOOL;        // low - liquid level at max setpoint
+    iTank_Level_Low : BOOL;         // low - liquid level at min setpoint
+    // Valve - Resin Tank Refill
+    iValve_Refill_Closed : BOOL;    // high - Resin Source is cutoff
+    // Resin Piston
+    iLevelSensor : INT;             // Analog level sensor
+    iProx_Limit_High : BOOL;        // High limit of Piston
+    iProx_Limit_Low : BOOL;         // Low limit of Piston
+    iMotor_OL : BOOL;               // Piston Motor Overload
+    // Valve - Resin Flow Direction (Tank/Outlet)
+    iValve_Flow_Tank : BOOL;        // Piston connected to Tank
+    iValve_Flow_Out : BOOL;         // Piston connected to Output Valve
+(* Other *)
+    iDispense_Amount : REAL;        // Kg Resin to dispense
+    enablePour : BOOL;
+END_VAR
+VAR_IN_OUT
+    iDispense_Start : BOOL;         // Set once to initiate dispense
+END_VAR
+VAR_OUTPUT
+(* Physical Outputs Q *)
+    // Resin Tank
+    oValve_Refill_Open : BOOL;      // high - Refill tank (1Q Valve)
+    // Resin Cylinder
+    oMotor_Up : BOOL;               // Piston Pulls in Resin
+    oMotor_Down : BOOL;             // Piston Pushes out Resin
+    oValve_FlowDir : BOOL;          // 0-In from Tank; 1-Out to Outlet
+(* Other *)
+    oDispense_Done : BOOL;          // Finished job - Success
+(* Alarms *)
+    oAlarmsOut : WORD;
+    oAlarms AT oAlarmsOut : ARRAY[0..15] OF BOOL;
+(*  oAlarms[0]  ->  "Resin Source Tank Sensor Fault"
+    oAlarms[1]  ->  "Resin Piston Analog Value out of range"
+    oAlarms[2]  ->  "Resin Piston Limit Sensors Fault"
+    oAlarms[3]  ->  "Resin Piston Motor Overload"
+    oAlarms[4]  ->  "Resin Direction Valve Sensors Fault"
+    oAlarms[5]  ->  "Resin Source Tank Refill timeout"
+    oAlarms[6]  ->  "Resin FlowDirection Valve unable to confirm sensors" 
+    oAlarms[7]  ->  "Resin Piston Refill timeout" *)
+END_VAR
+VAR
+    oldState, State : INT;
+    xCalibration_Val : REAL := 1.272;   // Density - default: 1Kg/liter
+    startLevel : INT;                   // Piston level record when started dispensing
+    totalOutputAmount : REAL;           // Kg resin already output dispensed
+    dispensedThisRound : REAL;
+    dispensedOut : REAL;
+    neededAmount : REAL;                // Kg resin to output for this job
+    tTimer, tResinTank : SFB4;
+END_VAR
+BEGIN
+(* Resin Source Tank Refill Control *)
+oAlarms[0] := iTank_Level_Low AND NOT iTank_Level_High;
+IF NOT (oAlarms[0]) THEN
+    IF (iTank_Level_Low) THEN
+        oValve_Refill_Open := true;
+    END_IF;
+    IF NOT (iTank_Level_High) THEN
+        oValve_Refill_Open := false;
+    END_IF;
+ELSE
+    oValve_Refill_Open := false;
+END_IF;
+tResinTank(IN := oValve_Refill_Open AND NOT oAlarms[0], PT := t#10m);
+oAlarms[5] := tResinTank.Q;
+
+(* Resin Cylinder Piston Control *)
+oAlarms[1] := (iLevelSensor < 400) OR (iLevelSensor > 27000);
+oAlarms[2] := iProx_Limit_High AND iProx_Limit_Low;
+oAlarms[3] := iMotor_OL;
+oAlarms[4] := iValve_Flow_Tank AND iValve_Flow_Out;
+CASE State OF
+    0 : // Standby
+        IF (oldState <> State) THEN
+            oldState := State;
+        END_IF;
+        IF (iDispense_Start AND (iDispense_Amount > 0.0)) THEN
+            neededAmount := iDispense_Amount;
+            totalOutputAmount := 0.0;
+            oDispense_Done := false;
+            State := 1;
+        END_IF;
+    1 : // Dispensing - PUSHING DOWN
+        IF (oldState <> State) THEN
+            tTimer(IN := false);
+            startLevel := iLevelSensor;
+            dispensedThisRound := 0.0;
+            oValve_FlowDir := true;
+            oldState := State;
+        END_IF;
+        tTimer(IN := NOT iValve_Flow_Out, PT := t#4s);
+        oAlarms[6] := tTimer.Q;
+        oMotor_Down := enablePour AND iValve_Flow_Out AND NOT iValve_Flow_Tank;
+        dispensedOut := ((iLevelSensor - startLevel) * xCalibration_Val / 4540);
+        IF (iProx_Limit_Low) THEN
+            totalOutputAmount := totalOutputAmount + dispensedOut;
+            State := 2;
+        ELSIF (totalOutputAmount + dispensedOut >= neededAmount) THEN
+            iDispense_Start := false;
+            oDispense_Done := true;
+            State := 0;
+        ELSE
+            dispensedThisRound := totalOutputAmount + dispensedOut;
+        END_IF;
+        IF (oldState <> State) THEN
+            oMotor_Down := false;
+            oValve_FlowDir := false;
+            oAlarms[6] := false;
+            dispensedOut := 0.0;
+        END_IF;
+    2 : // Refilling - PUSHING UP
+        IF (oldState <> State) THEN
+            tTimer(IN := false);
+            oldState := State;
+        END_IF;
+        oMotor_Up := NOT iTank_Level_Low;
+        tTimer(IN := true, PT := t#10m);
+        oAlarms[7] := tTimer.Q;
+        IF (iProx_Limit_High) THEN
+            IF (oDispense_Done) THEN
+                State := 0;
+            ELSE
+                State := 1;
+            END_IF;
+        END_IF;
+        IF (oldState <> State) THEN
+            oAlarms[7] := false;
+            oMotor_Up := false;
+        END_IF;
+END_CASE;
+END_FUNCTION_BLOCK
+(******************************************************************************)
+FUNCTION_BLOCK ResinDisp
+TITLE = 'Resin Dispenser Unit'
+VERSION : '1.0'
+KNOW_HOW_PROTECT
+AUTHOR : 'RF Brand'
+(***************************************************************************************
+This controls the complete Resin Dispenser unit and communicates with the MixerCar.
+****************************************************************************************)
+VAR_INPUT
+    iJob : Job;
+    iComm_MixerCar : INT;
+    iCalMode : BOOL;
+END_VAR
+VAR_OUTPUT
+    oComm_MixerCar : INT;
+    oAlarm_CalVA : BOOL;         // cannot confirm Valve to Cal
+    oAlarm_CalVB : BOOL;         // cannot confirm Valve to Cal
+END_VAR
+VAR
+    oldState : INT := -1;
+    State, intState : INT;
+    PistonA : ResinCylinder;
+    PistonB : ResinCylinder;
+    tTimer : SFB4;
+END_VAR
+BEGIN
+CASE State OF
+    0 : // Standby
+        IF (oldState <> State) THEN
+            oComm_MixerCar := 1;
+            oldState := State;
+        END_IF;
+        // need ready condition check for 2 p
+        IF (iComm_MixerCar = 2) THEN
+            State := 1;
+        ELSIF iCalMode THEN
+            State := 3;
+        END_IF;
+        IF (oldState <> State) THEN
+            ;
+        END_IF;
+    1 : // Dispensing Resin A into MixerCar
+        IF (oldState <> State) THEN
+            intState := 0;
+            PistonA.iDispense_Amount := iJob.resin_kg;
+            PistonA.iDispense_Start := true;
+            oComm_MixerCar := 3;
+            oldState := State;
+        END_IF;
+        CASE intState OF
+            0 : // wait for pistons to start
+                IF NOT (PistonA.oDispense_Done) THEN
+                    intState := 1;
+                END_IF;
+            1 : // wait for pistons to finish
+                IF (PistonA.oDispense_Done) THEN
+                    State := 2;
+                END_IF;
+        END_CASE;   
+        IF (oldState <> State) THEN
+            oComm_MixerCar := 0;
+        END_IF;
+    2 : // Dispensing Resin B into MixerCar
+        IF (oldState <> State) THEN
+            intState := 0;
+            PistonB.iDispense_Amount := iJob.resin_kg;
+            PistonB.iDispense_Start := true;
+            oComm_MixerCar := 3;
+            oldState := State;
+        END_IF;
+        CASE intState OF
+            0 : // wait for pistons to start
+                IF NOT (PistonB.oDispense_Done) THEN
+                    intState := 1;
+                END_IF;
+            1 : // wait for pistons to finish
+                IF (PistonB.oDispense_Done) THEN    
+                    oComm_MixerCar := 4;
+                    tTimer(IN := false);
+                    intState := 2;
+                END_IF;
+            2 : // notify MixerCar dump is complete
+                tTimer(IN := true, PT := t#2s);
+                IF (tTimer.Q) THEN
+                    State := 0;
+                END_IF;
+        END_CASE;   
+        IF (oldState <> State) THEN
+            oComm_MixerCar := 0;
+        END_IF;
+    3 : // Calibration
+        IF (oldState <> State) THEN
+            //intState := 0;
+            tTimer(IN := false);
+            qResinA_OutToCal := true;
+            qResinB_OutToCal := true;
+            oComm_MixerCar := 0;
+            oldState := State;
+        END_IF;
+                tTimer(IN := NOT iResinA_OutValveCal OR NOT iResinB_OutValveCal, PT := t#2s);
+                oAlarm_CalVA := tTimer.Q AND iResinA_OutValveCal;
+                oAlarm_CalVB := tTimer.Q AND iResinB_OutValveCal;
+        IF NOT iCalMode THEN
+            State := 0;
+        END_IF;
+        IF (oldState <> State) THEN
+            oAlarm_CalVA := false;
+            oAlarm_CalVB := false;
+            qResinA_OutToCal := false;
+            qResinB_OutToCal := false;
+        END_IF;
+END_CASE;
+PistonA(    iTank_Level_High        := iResinA_LevelH,
+            iTank_Level_Low         := iResinA_LevelL,
+            iValve_Refill_Closed    := iResinA_RefillClosed,
+            iLevelSensor            := WORD_TO_INT(aResinASignal),
+            iProx_Limit_High        := iResinA_LimitUp,
+            iProx_Limit_Low         := iResinA_LimitDwn,
+            iMotor_OL               := iResinA_MotorOL,
+            iValve_Flow_Tank        := iResinA_FlowValveTank,
+            iValve_Flow_Out         := iResinA_FlowValveOut,
+            enablePour              := iMixCar_Prox_Resin OR iResinA_OutValveCal
+);
+qResinA_Refill           := PistonA.oValve_Refill_Open;
+qResinA_MotorDwn         := PistonA.oMotor_Down;
+qResinA_MotorUp          := PistonA.oMotor_Up;
+qResinA_OutToValve       := PistonA.oValve_FlowDir;
+
+PistonB(    iTank_Level_High        := iResinB_LevelH,
+            iTank_Level_Low         := iResinB_LevelL,
+            iValve_Refill_Closed    := iResinB_RefillClosed,
+            iLevelSensor            := WORD_TO_INT(aResinBSignal),
+            iProx_Limit_High        := iResinB_LimitUp,
+            iProx_Limit_Low         := iResinB_LimitDwn,
+            iMotor_OL               := iResinB_MotorOL,
+            iValve_Flow_Tank        := iResinB_FlowValveTank,
+            iValve_Flow_Out         := iResinB_FlowValveOut,
+            enablePour              := iMixCar_Prox_Resin OR iResinB_OutValveCal
+);
+qResinB_Refill           := PistonB.oValve_Refill_Open;
+qResinB_MotorDwn         := PistonB.oMotor_Down;
+qResinB_MotorUp          := PistonB.oMotor_Up;
+qResinB_OutToValve       := PistonB.oValve_FlowDir;
+END_FUNCTION_BLOCK
