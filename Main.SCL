@@ -14,8 +14,8 @@ VAR
     returnval : INT;
     (*
     sM2 : simCoreM;
-    *)
-    (*sMixTrack : simTrack;
+    *)(*
+    sMixTrack : simTrack;
     sDelTrack : simTrack;
     sSandTrack : simTrack;
     
@@ -100,7 +100,7 @@ HMIJobAdder(); // HMI sets parameters
 
 IF ((mySandCar.State = 1) AND (myMixCar.State = 1) AND NOT Queue.fEmpty) THEN
     returnval := popJob(peekOnly := false, oJob := currentJob);
-    IF returnval = 0 THEN
+    IF (returnval = 0) THEN
         mySandCar.iJob := currentJob;
         mySandCar.iStartJob := true;
     END_IF;

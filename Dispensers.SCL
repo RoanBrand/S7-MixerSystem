@@ -296,18 +296,35 @@ CASE State OF
         END_IF;
     5 : // Valve Non-Freeze Cycle
         IF (oldState <> State) THEN
+            intState := 0;
             tTimer(IN := false);
             qResinA_OutToCal := true; // B does not get hard
-            //qResinA_ReleaseValve := true;                         COMMENT OUT IF NEEDED
             oldState := State;
         END_IF;
-        tTimer(IN := true, PT := t#100ms);
-        IF (tTimer.Q) THEN
-            State := 0;
-        END_IF;
+        CASE intState OF
+            0 : // Pulse Calibration valve first
+                tTimer(IN := true, PT := t#100ms);
+                IF (tTimer.Q) THEN
+                    qResinA_OutToCal := false;
+                    tTimer(IN := false);
+                    intState := 1;
+                END_IF;
+            1 : // Wait for close
+                tTimer(IN := true, PT := t#400ms);
+                IF (tTimer.Q) THEN
+                    qResinA_ReleaseValve := true;
+                    tTimer(IN := false);
+                    intState := 2;
+                END_IF;
+            2 : // Pulse Release point valve
+                tTimer(IN := true, PT := t#100ms);
+                IF (tTimer.Q) THEN
+                    State := 0;
+                END_IF;
+        END_CASE;
         IF (oldState <> State) THEN
             qResinA_OutToCal := false;
-            //qResinA_ReleaseValve := false;                        COMMENT OUT IF NEEDED
+            qResinA_ReleaseValve := false;
         END_IF;
 END_CASE;
 PistonA(    iTank_Level_High        := iResinA_LevelH,

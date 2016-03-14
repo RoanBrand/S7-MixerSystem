@@ -429,7 +429,7 @@ CASE State OF
         tTimer(IN := true, PT := myJob.preMixTime); // pre-mix before resin
         IF (myTrack.actualPos = 2) AND (tTimer.Q) AND (myTrack.oParked) THEN
             State := 4;
-        ELSIF (sendToDump OR (myJob.Destination = 2)) THEN
+        ELSIF (sendToDump) THEN
             myJob.Destination := 2;
             State := 6;
         END_IF;
@@ -464,17 +464,27 @@ CASE State OF
         END_IF;
     5 : // receiving load from ResinDisp
         IF (oldState <> State) THEN
+            intState := 0;
+            tTimer(IN := false);
             qMixer1On := true;
             oldState := State;
         END_IF;
         IF (sendToDump) THEN
             myJob.Destination := 2;
         END_IF;
-        IF (iComm_ResinDisp = 4) THEN
-            State := 6;
-        ELSIF (iComm_ResinDisp <> 3) THEN
-            ; //timeout needed?
-        END_IF;
+        CASE intState OF
+            0 : // Wait for next message from ResinDisp
+                IF (iComm_ResinDisp = 4) THEN
+                    intState := 1;
+                ELSIF (iComm_ResinDisp <> 3) THEN
+                    ; //timeout needed?
+                END_IF;
+            1 : // Delay for dripping Resin
+                tTimer(IN := true, PT := t#4s);
+                IF (tTimer.Q) THEN
+                    State := 6;
+                END_IF;
+        END_CASE;
         IF (oldState <> State) THEN
             qMixer1On := false;
         END_IF;
@@ -489,8 +499,7 @@ CASE State OF
             myJob.Destination := 2;
         END_IF;
         tTimer(IN := true, PT := myJob.MixTime); // mix time before delivery
-        IF (myTrack.actualPos = 4) AND (tTimer.Q OR (myJob.Destination = 2)) AND (myTrack.oParked) THEN
-            // if destination is dump, skip the mix
+        IF (myTrack.actualPos = 4) AND (tTimer.Q) AND (myTrack.oParked) THEN
             State := 7;
         END_IF;
         IF (oldState <> State) THEN
