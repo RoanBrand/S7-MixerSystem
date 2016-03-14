@@ -669,15 +669,14 @@ CASE State OF
         END_IF;
         tTimer(IN := true, PT := t#4s);
         IF (iStartJob AND tTimer.Q) THEN
-            myJob := iJob;
             iStartJob := false;
-            IF (myJob.silica_kg > 0.0) THEN
+            IF (iJob.silica_kg > 0.0) THEN
+                myJob := iJob;
                 State := 2;
-            ELSE
-                (*
+            ELSIF (iJob.chromite_kg > 0.0) THEN
                 myTrack.desiredPos := 4;
-                State := 3;*)
-                State := 5;
+                myJob := iJob;
+                State := 3;
             END_IF;
         END_IF;
         IF (oldState <> State) THEN
@@ -767,7 +766,7 @@ CASE State OF
             oAlarms[7] := false;
             oAlarms[8] := false;
         END_IF;
-    3 : // Goto next sand dumper (chrome)
+    3 : // Goto next sand dumper (chrome) // pos set from caller
         IF (oldState <> State) THEN
             tTimer(IN := false);
             oldState := State;

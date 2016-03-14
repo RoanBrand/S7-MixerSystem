@@ -59,8 +59,7 @@ END_IF;
 
 qMainAirOn := iEStopHealth; // air turned off under estop condition
 
-myResinStation( //iAmmount            := currentJob.resin_kg,
-                iJob                := myMixCar.oJob,
+myResinStation( iJob                := myMixCar.oJob,
                 iComm_MixerCar      := myMixCar.oComm_ResinDisp
 );
 mySandCar(      WeightVal           := WORD_TO_INT(aSandScaleSignal),

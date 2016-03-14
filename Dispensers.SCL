@@ -65,7 +65,7 @@ VAR_OUTPUT
 END_VAR
 VAR
     oldState : INT := -1;
-    State : INT;
+    State, intState : INT;
     xCalibration_Val : REAL := 1.272;   // Density - default: 1Kg/liter
     startLevel : INT;                   // Piston level record when started dispensing
     totalOutputAmount : REAL;           // Kg resin already output dispensed
@@ -146,7 +146,7 @@ CASE State OF
             tTimer(IN := false);
             oldState := State;
         END_IF;
-        oMotor_Up := NOT iTank_Level_Low;
+        oMotor_Up := NOT iTank_Level_Low AND iValve_Flow_Tank;
         tTimer(IN := true, PT := t#10m);
         oAlarms[7] := tTimer.Q;
         IF (iProx_Limit_High) THEN
@@ -160,17 +160,39 @@ CASE State OF
             oAlarms[7] := false;
             oMotor_Up := false;
         END_IF;
-   5 :  // Valve Non-Freeze Cycle
+   5 :  // Resin loosen cycle
         IF (oldState <> State) THEN
+            intState := 0;
             tTimer(IN := false);
             oldState := State;
-            oValve_FlowDir := true;
         END_IF;
-        tTimer(IN := true, PT := t#100ms);
-        IF (tTimer.Q) THEN
-            State := 0;
-        END_IF;
+        CASE intState OF
+            0 : // step down a bit
+                tTimer(IN := true, PT := t#1s);
+                oMotor_Down := iValve_Flow_Tank AND NOT iProx_Limit_Low;
+                IF (tTimer.Q) THEN
+                    oMotor_Down := false;
+                    tTimer(IN := false);
+                    intState := 1;
+                END_IF;
+            1 : // step up a bit
+                tTimer(IN := true, PT := t#1.2s);
+                oMotor_Up := iValve_Flow_Tank AND NOT iProx_Limit_High;
+                IF (tTimer.Q) THEN
+                    oMotor_Up := false;
+                    tTimer(IN := false);
+                    intState := 2;
+                END_IF;
+            2 : // Pulse flow direction valve
+                tTimer(IN := true, PT := t#100ms);
+                oValve_FlowDir := true;
+                IF (tTimer.Q) THEN
+                    State := 0;
+                END_IF;
+        END_CASE;   
         IF (oldState <> State) THEN
+            oMotor_Down := false;
+            oMotor_Up := false;
             oValve_FlowDir := false;
         END_IF;
 END_CASE;
