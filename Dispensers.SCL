@@ -101,7 +101,7 @@ CASE State OF
             tTimer(IN := false);
             oldState := State;
         END_IF;
-        tTimer(IN := true, PT := t#30m);
+        tTimer(IN := true, PT := t#120m);
         IF (iDispense_Start AND (iDispense_Amount > 0.0)) THEN
             neededAmount := iDispense_Amount;
             totalOutputAmount := 0.0;
@@ -160,16 +160,11 @@ CASE State OF
    5 :  // Valve Non-Freeze Cycle
         IF (oldState <> State) THEN
             tTimer(IN := false);
-            startLevel := 0; // just used here so need to make 2nd int
             oldState := State;
+            oValve_FlowDir := true;
         END_IF;
-        tTimer(IN := true, PT := t#1s);
+        tTimer(IN := true, PT := t#100ms);
         IF (tTimer.Q) THEN
-            tTimer(IN := false);
-            startLevel := startLevel + 1;
-            oValve_FlowDir := NOT oValve_FlowDir;
-        END_IF;
-        IF ((startLevel > 5) OR iDispense_Start) THEN
             State := 0;
         END_IF;
         IF (oldState <> State) THEN
@@ -211,7 +206,7 @@ CASE State OF
             oComm_MixerCar := 1;
             oldState := State;
         END_IF;
-        tTimer(IN := true, PT := t#30m);
+        tTimer(IN := true, PT := t#60m);
         // need ready condition check for 2 p
         IF (iCalMode) THEN
             oComm_MixerCar := 0;
@@ -228,6 +223,8 @@ CASE State OF
     1 : // Dispensing Resin B into MixerCar
         IF (oldState <> State) THEN
             intState := 0;
+            qResinA_ReleaseValve := true;
+            qResinB_ReleaseValve := true;
             PistonB.iDispense_Amount := iJob.resin_kg;
             PistonB.iDispense_Start := true;
             oComm_MixerCar := 3;
@@ -273,6 +270,8 @@ CASE State OF
         END_CASE;   
         IF (oldState <> State) THEN
             oComm_MixerCar := 0;
+            qResinA_ReleaseValve := false;
+            qResinB_ReleaseValve := false;
         END_IF;
     3 : // Calibration
         IF (oldState <> State) THEN
@@ -298,22 +297,17 @@ CASE State OF
     5 : // Valve Non-Freeze Cycle
         IF (oldState <> State) THEN
             tTimer(IN := false);
-            intState := 0;
+            qResinA_OutToCal := true; // B does not get hard
+            //qResinA_ReleaseValve := true;                         COMMENT OUT IF NEEDED
             oldState := State;
         END_IF;
-        tTimer(IN := true, PT := t#1s);
+        tTimer(IN := true, PT := t#100ms);
         IF (tTimer.Q) THEN
-            tTimer(IN := false);
-            intState := intState + 1;
-            qResinA_OutToCal := NOT qResinA_OutToCal;
-            qResinB_OutToCal := NOT qResinB_OutToCal;
-        END_IF;
-        IF ((intState > 5) OR (iComm_MixerCar = 2)) THEN
             State := 0;
         END_IF;
         IF (oldState <> State) THEN
             qResinA_OutToCal := false;
-            qResinB_OutToCal := false;
+            //qResinA_ReleaseValve := false;                        COMMENT OUT IF NEEDED
         END_IF;
 END_CASE;
 PistonA(    iTank_Level_High        := iResinA_LevelH,

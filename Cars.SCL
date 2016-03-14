@@ -101,7 +101,7 @@ This controls the complete Delivery Car unit and communicates with the MixerCar.
 VAR_INPUT
     iJob : Job;                 // Job given by MixerCar
     iComm_MixerCar : INT;       // Communication from MixerCar
-    
+(* HMI *)
     cleanMode : BOOL;           // Go to dump, open and wait
     sendToDump : BOOL;          // Send current to Dump
 END_VAR
@@ -219,7 +219,7 @@ CASE State OF
         IF (oldState <> State) THEN
             ;
         END_IF;
-    4 : // Dump Load in CoreMachine
+    4 : // Dump Load in Shute
         IF (oldState <> State) THEN
             tTimer(IN := false);
             intState := 0;
@@ -297,6 +297,8 @@ VAR_INPUT
     iComm_ResinDisp : INT;
     iComm_DeliveryCar : INT;
     iHandAdditionDone : BOOL;
+(* HMI *) 
+    sendToDump : BOOL;          // Send current to Dump
 END_VAR
 VAR_OUTPUT
     oJob : Job;
@@ -349,6 +351,9 @@ CASE State OF
         END_IF;
         IF (myTrack.actualPos = 1) THEN
             State := 1;
+        ELSIF (sendToDump) THEN
+            myJob.Destination := 2;
+            State := 6;
         END_IF;
         IF (oldState <> State) THEN
             ;
@@ -364,6 +369,9 @@ CASE State OF
                     oComm_SandCar := 2;
                     myJob := iJob;
                     intState := 1;
+                ELSIF (sendToDump) THEN
+                    myJob.Destination := 2;
+                    State := 6;
                 END_IF;
             1 : // Give SandCar go-ahead to dump
                 IF (iComm_SandCar = 3) THEN
@@ -380,6 +388,9 @@ CASE State OF
         IF (oldState <> State) THEN
             intState := 0;
             oldState := State;
+        END_IF;
+        IF (sendToDump) THEN
+            myJob.Destination := 2;
         END_IF;
         CASE intState OF
             0 : // wait for sandcar to finish
@@ -418,6 +429,9 @@ CASE State OF
         tTimer(IN := true, PT := myJob.preMixTime); // pre-mix before resin
         IF (myTrack.actualPos = 2) AND (tTimer.Q) AND (myTrack.oParked) THEN
             State := 4;
+        ELSIF (sendToDump OR (myJob.Destination = 2)) THEN
+            myJob.Destination := 2;
+            State := 6;
         END_IF;
         IF (oldState <> State) THEN
             qMixer1On := false;
@@ -433,6 +447,9 @@ CASE State OF
                 IF (iComm_ResinDisp = 1) THEN
                     oComm_ResinDisp := 2;
                     intState := 1;
+                ELSIF (sendToDump) THEN
+                    myJob.Destination := 2;
+                    State := 6;
                 END_IF;
             1 : // Give ResinDisp go-ahead to dump
                 IF (iComm_ResinDisp = 3) THEN
@@ -450,6 +467,9 @@ CASE State OF
             qMixer1On := true;
             oldState := State;
         END_IF;
+        IF (sendToDump) THEN
+            myJob.Destination := 2;
+        END_IF;
         IF (iComm_ResinDisp = 4) THEN
             State := 6;
         ELSIF (iComm_ResinDisp <> 3) THEN
@@ -465,8 +485,12 @@ CASE State OF
             myTrack.desiredPos := 4;
             oldState := State;
         END_IF;
+        IF (sendToDump) THEN
+            myJob.Destination := 2;
+        END_IF;
         tTimer(IN := true, PT := myJob.MixTime); // mix time before delivery
-        IF (myTrack.actualPos = 4) AND (tTimer.Q) AND (myTrack.oParked) THEN
+        IF (myTrack.actualPos = 4) AND (tTimer.Q OR (myJob.Destination = 2)) AND (myTrack.oParked) THEN
+            // if destination is dump, skip the mix
             State := 7;
         END_IF;
         IF (oldState <> State) THEN
