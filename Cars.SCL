@@ -152,6 +152,7 @@ CASE State OF
             myTrack.desiredPos := 1;
             oldState := State;
         END_IF;
+
         IF (myTrack.actualPos = 1) THEN
             State := 1;
         ELSIF (cleanMode) THEN
@@ -160,6 +161,7 @@ CASE State OF
             Dump_Destination := 2;
             State := 3;
         END_IF;
+
         IF (oldState <> State) THEN
             ;
         END_IF;
@@ -168,6 +170,7 @@ CASE State OF
             intState := 0;
             oldState := State;
         END_IF;
+
         CASE intState OF
             0 : // Waiting for MixerCar
                 IF (cleanMode) THEN
@@ -188,6 +191,7 @@ CASE State OF
                     intState := 0;
                 END_IF;
         END_CASE;
+
         IF (oldState <> State) THEN
             oComm_MixerCar := 0;
         END_IF;
@@ -195,6 +199,7 @@ CASE State OF
         IF (oldState <> State) THEN
             oldState := State;
         END_IF;
+
         IF (iComm_MixerCar = 4) THEN
             State := 3;
         ELSIF (iComm_MixerCar <> 3) THEN
@@ -202,6 +207,7 @@ CASE State OF
         ELSIF (sendToDump) THEN
             Dump_Destination := 2;
         END_IF;
+
         IF (oldState <> State) THEN
             ;
         END_IF;
@@ -210,12 +216,14 @@ CASE State OF
             myTrack.desiredPos := Dump_Destination;
             oldState := State;
         END_IF;
+
         IF (myTrack.actualPos = myTrack.desiredPos) AND (myTrack.oParked) THEN
             State := 4;
         ELSIF (sendToDump) THEN
             Dump_Destination := 2;
             myTrack.desiredPos := 2;
         END_IF;
+
         IF (oldState <> State) THEN
             ;
         END_IF;
@@ -226,6 +234,7 @@ CASE State OF
             qDelCar_Piston_Open := true;
             oldState := State;
         END_IF;
+
         CASE intState OF
             0 : // Open Dump Valve
                 tTimer(IN := true, PT := t#5s);
@@ -252,6 +261,7 @@ CASE State OF
                     State := 0;
                 END_IF;
         END_CASE;
+
         IF (oldState <> State) THEN
             qDelCar_Piston_Open := false;
             qDelCar_Piston_Close := false;
@@ -264,6 +274,7 @@ CASE State OF
             myTrack.desiredPos := 2;
             oldState := State;
         END_IF;
+
         IF NOT (cleanMode) THEN
             qDelCar_Piston_Open := false;
             qDelCar_Piston_Close := true;
@@ -275,6 +286,7 @@ CASE State OF
             tTimer(IN := qDelCar_Piston_Open, PT := t#5s);
             oAlarms[5] := tTimer.Q;
         END_IF;
+
         IF (oldState <> State) THEN
             qDelCar_Piston_Open := false;
             qDelCar_Piston_Close := false;
@@ -296,16 +308,15 @@ VAR_INPUT
     iComm_SandCar : INT;
     iComm_ResinDisp : INT;
     iComm_DeliveryCar : INT;
-    iHandAdditionDone : BOOL;
 (* HMI *) 
     sendToDump : BOOL;          // Send current to Dump
+    iHandAdditionDone : BOOL;   // Confirmation of Red-ox add
 END_VAR
 VAR_OUTPUT
     oJob : Job;
     oComm_SandCar : INT;
     oComm_ResinDisp : INT;
     oComm_DeliveryCar : INT;
-    oHandAdditionReq : BOOL;
 (* Alarms *)
     oAlarmsOut : WORD;
     oAlarms AT oAlarmsOut : ARRAY[0..15] OF BOOL;
@@ -316,7 +327,9 @@ VAR_OUTPUT
     oAlarms[4]  ->  "Dump valve feedback sensors interlock"
     oAlarms[5]  ->  "Dump valve not opening in time"
     oAlarms[6]  ->  "Dump valve not closing in time" 
-    oAlarms[7]  ->  "" *)
+    oAlarms[7]  ->  "SandCar not dumping anymore. User to Dump on HMI"  *)
+(* HMI *) 
+    oHandAdditionReq : BOOL;
 END_VAR
 VAR
     oldState : INT := -1;
@@ -349,24 +362,31 @@ CASE State OF
             myTrack.desiredPos := 1;
             oldState := State;
         END_IF;
+
         IF (myTrack.actualPos = 1) THEN
             State := 1;
         ELSIF (sendToDump) THEN
             myJob.Destination := 2;
             State := 6;
         END_IF;
+
         IF (oldState <> State) THEN
             qMixCar_Piston_Open := false;
             qMixCar_Piston_Close := false;
         END_IF;
     1 : // Able to Start Job
         IF (oldState <> State) THEN
+            tTimer(IN := false);
             intState := 0;
             oldState := State;
         END_IF;
+
         CASE intState OF
             0 : // Waiting for SandCar
-                IF (iComm_SandCar = 1) THEN
+				tTimer(IN := NOT iMixCar_Piston_Closed, PT := t#5s);
+                oAlarms[6] := tTimer.Q;
+                qMixCar_Piston_Close := NOT iMixCar_Piston_Closed;
+                IF (iComm_SandCar = 1) AND (iMixCar_Piston_Closed) THEN
                     oComm_SandCar := 2;
                     myJob := iJob;
                     intState := 1;
@@ -382,14 +402,18 @@ CASE State OF
                     intState := 0;
                 END_IF;
         END_CASE;
+
         IF (oldState <> State) THEN
             oComm_SandCar := 0;
+            oAlarms[6] := false;
+            qMixCar_Piston_Close := false;
         END_IF;
     2 : // Receiving Load from SandCar
         IF (oldState <> State) THEN
             intState := 0;
             oldState := State;
         END_IF;
+
         IF (sendToDump) THEN
             myJob.Destination := 2;
         END_IF;
@@ -397,6 +421,12 @@ CASE State OF
             0 : // wait for sandcar to finish
                 IF (iComm_SandCar = 4) THEN
                     intState := 1;
+                ELSIF (iComm_SandCar <> 3) THEN
+                    oAlarms[7] := true;
+                    IF (sendToDump) THEN
+                        myJob.Destination := 2;
+                     State := 6;
+                    END_IF;
                 END_IF;
             1 : // check if oxide needed
                 IF (myJob.oxide_kg > 0.0) THEN
@@ -414,15 +444,10 @@ CASE State OF
                     State := 3;
                 END_IF;
         END_CASE;
-        (*
-        IF (iComm_SandCar = 4) THEN
-            State := 3;
-        ELSIF (iComm_SandCar <> 3) THEN
-            ;
-        END_IF;*)
         
         IF (oldState <> State) THEN
             oHandAdditionReq := false;
+            oAlarms[7] := false;
         END_IF;
     3 : // Goto Resin Dispenser
         IF (oldState <> State) THEN
@@ -431,6 +456,7 @@ CASE State OF
             myTrack.desiredPos := 2;
             oldState := State;
         END_IF;
+
         tTimer(IN := true, PT := myJob.preMixTime); // pre-mix before resin
         IF (myTrack.actualPos = 2) AND (tTimer.Q) AND (myTrack.oParked) THEN
             State := 4;
@@ -438,6 +464,7 @@ CASE State OF
             myJob.Destination := 2;
             State := 6;
         END_IF;
+
         IF (oldState <> State) THEN
             qMixer1On := false;
         END_IF;
@@ -447,6 +474,7 @@ CASE State OF
             oJob := myJob;
             oldState := State;
         END_IF;
+
         CASE intState OF
             0 : // Waiting for ResinDisp
                 IF (iComm_ResinDisp = 1) THEN
