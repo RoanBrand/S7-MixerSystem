@@ -61,7 +61,8 @@ VAR_OUTPUT
     oAlarms[4]  ->  "Resin Direction Valve Sensors Fault"
     oAlarms[5]  ->  "Resin Source Tank Refill timeout"
     oAlarms[6]  ->  "Resin FlowDirection Valve unable to confirm sensors" 
-    oAlarms[7]  ->  "Resin Piston Refill timeout" *)
+    oAlarms[7]  ->  "Resin Piston Refill timeout"
+    oAlarms[8]  ->  "Resin Piston Stuck" *)
 END_VAR
 VAR
     oldState : INT := -1;
@@ -107,7 +108,7 @@ CASE State OF
             totalOutputAmount := 0.0;
             oDispense_Done := false;
             State := 1;
-        ELSIF (iLevelSensor > 17240) THEN
+        ELSIF (iLevelSensor > 17240) THEN   // auto refill when below certain level
             oDispense_Done := true;
             State := 2;
         ELSIF (tTimer.Q) THEN
@@ -164,21 +165,24 @@ CASE State OF
         IF (oldState <> State) THEN
             intState := 0;
             tTimer(IN := false);
+            startLevel := iLevelSensor;
             oldState := State;
         END_IF;
+        
         CASE intState OF
             0 : // step down a bit
-                tTimer(IN := true, PT := t#1s);
+                tTimer(IN := true, PT := t#30s);
                 oMotor_Down := iValve_Flow_Tank AND NOT iProx_Limit_Low;
-                IF (tTimer.Q) THEN
+                IF ((iLevelSensor - startLevel) > 2500) OR iProx_Limit_Low THEN
                     oMotor_Down := false;
+                    startLevel := iLevelSensor;
                     tTimer(IN := false);
                     intState := 1;
                 END_IF;
             1 : // step up a bit
-                tTimer(IN := true, PT := t#1.2s);
+                tTimer(IN := true, PT := t#30s);
                 oMotor_Up := iValve_Flow_Tank AND NOT iProx_Limit_High;
-                IF (tTimer.Q) THEN
+                IF ((startLevel - iLevelSensor) > 2500) OR iProx_Limit_High THEN
                     oMotor_Up := false;
                     tTimer(IN := false);
                     intState := 2;
@@ -189,10 +193,13 @@ CASE State OF
                 IF (tTimer.Q) THEN
                     State := 0;
                 END_IF;
-        END_CASE;   
+        END_CASE;
+        oAlarms[8] := tTimer.Q;
+        
         IF (oldState <> State) THEN
             oMotor_Down := false;
             oMotor_Up := false;
+            oAlarms[8] := false;
             oValve_FlowDir := false;
         END_IF;
 END_CASE;
