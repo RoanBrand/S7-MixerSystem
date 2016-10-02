@@ -116,7 +116,8 @@ VAR_OUTPUT
     oAlarms[3]  ->  "Car taking too long to reach destination"
     oAlarms[4]  ->  "Dump valve feedback sensors interlock"
     oAlarms[5]  ->  "Dump valve not opening in time"
-    oAlarms[6]  ->  "Dump valve not closing in time" *)
+    oAlarms[6]  ->  "Dump valve not closing in time"
+    oAlarms[7]  ->  "MixerCar dump incomplete. Sending to dump shute" *)
 END_VAR
 VAR
     oldState : INT := -1;       // Last state
@@ -195,19 +196,25 @@ CASE State OF
         END_IF;
     2 : // Receiving Load from MixerCar
         IF (oldState <> State) THEN
+            tTimer(IN := false);
             oldState := State;
         END_IF;
 
         IF (iComm_MixerCar = 4) THEN
             State := 3;
         ELSIF (iComm_MixerCar <> 3) THEN
-            ;
+            tTimer(IN := true, PT := t#2s);
+            oAlarms[7] := true;
+            IF (tTimer.Q) THEN
+                Dump_Destination := 2;
+                State := 3;
+            END_IF;
         ELSIF (sendToDump) THEN
             Dump_Destination := 2;
         END_IF;
 
         IF (oldState <> State) THEN
-            ;
+            oAlarms[7] := false;
         END_IF;
     3 : // Goto Dump Destination
         IF (oldState <> State) THEN
