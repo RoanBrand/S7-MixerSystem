@@ -36,7 +36,12 @@ VAR_OUTPUT
     oAlarms[5]  ->  "Safety Gate 2 Open"
     oAlarms[6]  ->  "Safety Gate 3 Open"
     oAlarms[7]  ->  "Safety Gate 4 Open"
-    oAlarms[8]  ->  "Main Air Contactor not Energized" *)
+    oAlarms[8]  ->  "Main Air Contactor not Energized"
+    oAlarms[9]  ->  "FL Mixer Safety relay triggered"
+    oAlarms[10] ->  "FL Mixer Motor Overload"
+    oAlarms[11] ->  "Mixer Car's track motor isolator switched"
+    oAlarms[12] ->  "Mixer Car's mixer motor isolator switched"
+    oAlarms[13] ->  "Floor mixer motor isolator switched" *)
 END_VAR
 BEGIN
 // Faults and alarms
@@ -56,6 +61,10 @@ oAlarms[10] := iFLMixerOL;
 IF (oAlarms[9]) THEN
     qFLMixer := false;
 END_IF;
+
+oAlarms[11] := NOT iMixCarTrackIsolator;
+oAlarms[12] := NOT iMixCarMixerIsolator;
+oAlarms[13] := NOT iFLMixerIsolator;
 
 qMainAirOn := iEStopHealth; // air turned off under estop condition
 
