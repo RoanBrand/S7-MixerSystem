@@ -117,7 +117,7 @@ VAR_OUTPUT
     oAlarms[4]  ->  "Dump valve feedback sensors interlock"
     oAlarms[5]  ->  "Dump valve not opening in time"
     oAlarms[6]  ->  "Dump valve not closing in time" 
-    oAlarms[7]  ->  "Mixer Motor Overload Tripped" *)
+    oAlarms[7]  ->  "Mixer Motor Overload Tripped" *) // why is this here?
 END_VAR
 VAR
     oldState : INT := -1;       // Last state
@@ -144,7 +144,7 @@ oAlarms[1] := NOT iDelCar_VSDHealth;
 oAlarms[2] := myTrack.oAlarm_Position;
 oAlarms[3] := myTrack.oAlarm_TO;
 oAlarms[4] := iDelCar_Piston_Open AND iDelCar_Piston_Closed;
-oAlarms[7] := iMixer1OL;
+oAlarms[7] := iMixCarMixerOL;
 
 CASE State OF
     0 : // Go to Home Position
@@ -383,7 +383,7 @@ CASE State OF
 
         CASE intState OF
             0 : // Waiting for SandCar
-				tTimer(IN := NOT iMixCar_Piston_Closed, PT := t#5s);
+                tTimer(IN := NOT iMixCar_Piston_Closed, PT := t#5s);
                 oAlarms[6] := tTimer.Q;
                 qMixCar_Piston_Close := NOT iMixCar_Piston_Closed;
                 IF (iComm_SandCar = 1) AND (iMixCar_Piston_Closed) THEN
@@ -452,7 +452,7 @@ CASE State OF
     3 : // Goto Resin Dispenser
         IF (oldState <> State) THEN
             tTimer(IN := false);
-            qMixer1On := true;
+            qMixCarMixer := true;
             myTrack.desiredPos := 2;
             oldState := State;
         END_IF;
@@ -466,7 +466,7 @@ CASE State OF
         END_IF;
 
         IF (oldState <> State) THEN
-            qMixer1On := false;
+            qMixCarMixer := false;
         END_IF;
     4 : // Waiting for ResinDisp
         IF (oldState <> State) THEN
@@ -499,7 +499,7 @@ CASE State OF
         IF (oldState <> State) THEN
             intState := 0;
             tTimer(IN := false);
-            qMixer1On := true;
+            qMixCarMixer := true;
             oldState := State;
         END_IF;
         IF (sendToDump) THEN
@@ -519,12 +519,12 @@ CASE State OF
                 END_IF;
         END_CASE;
         IF (oldState <> State) THEN
-            qMixer1On := false;
+            qMixCarMixer := false;
         END_IF;
     6 : // Goto DeliveryCar
         IF (oldState <> State) THEN
             tTimer(IN := false);
-            qMixer1On := true;
+            qMixCarMixer := true;
             IF (myJob.MixTime = t#0s) THEN
                 myJob.MixTime := t#1ms; // hacky
             END_IF;
@@ -539,7 +539,7 @@ CASE State OF
             State := 7;
         END_IF;
         IF (oldState <> State) THEN
-            qMixer1On := false;
+            qMixCarMixer := false;
         END_IF;
     7 : // Dump Load in DeliveryCar
         IF (oldState <> State) THEN
@@ -562,14 +562,14 @@ CASE State OF
                 IF (iMixCar_Piston_Open) THEN
                     qMixCar_Piston_Open := false;
                     tTimer(IN := false);
-                    qMixer1On := true;
+                    qMixCarMixer := true;
                     intState := 2;
                 END_IF;
             2 : // Dumping
                 tTimer(IN := true, PT := t#25s);
                 IF (tTimer.Q) THEN
                     qMixCar_Piston_Close := true;
-                    qMixer1On := false;
+                    qMixCarMixer := false;
                     oComm_DeliveryCar := 4;
                     tTimer(IN := false);
                     intState := 3;
@@ -586,7 +586,7 @@ CASE State OF
             oComm_DeliveryCar := 0;
             qMixCar_Piston_Open := false;
             qMixCar_Piston_Close := false;
-            qMixer1On := false;
+            qMixCarMixer := false;
             oAlarms[5] := false;
             oAlarms[6] := false;
         END_IF;

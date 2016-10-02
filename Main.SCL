@@ -52,9 +52,9 @@ oAlarms[3] := iEStop2;
 
 // Floor Standing Mixer Man
 oAlarms[9] := NOT iFLMixerHealth;
-oAlarms[10] := iMixer2OL;
+oAlarms[10] := iFLMixerOL;
 IF (oAlarms[9]) THEN
-    qMixerSpare := false;
+    qFLMixer := false;
 END_IF;
 
 qMainAirOn := iEStopHealth; // air turned off under estop condition
