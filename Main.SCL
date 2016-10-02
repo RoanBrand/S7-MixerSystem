@@ -58,8 +58,8 @@ oAlarms[3] := iEStop2;
 // Floor Standing Mixer Man
 oAlarms[9] := NOT iFLMixerHealth;
 oAlarms[10] := iFLMixerOL;
-IF (oAlarms[9]) THEN
-    qFLMixer := false;
+IF (oAlarms[9] OR oAlarms[10]) THEN
+    qFLMixer := false; // Turn off FL Mixer safety relay/overload triggered.
 END_IF;
 
 oAlarms[11] := NOT iMixCarTrackIsolator;
