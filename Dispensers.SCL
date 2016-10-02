@@ -108,7 +108,7 @@ CASE State OF
             totalOutputAmount := 0.0;
             oDispense_Done := false;
             State := 1;
-        ELSIF (iLevelSensor > 17240) THEN   // auto refill when below certain level
+        ELSIF (iLevelSensor > 4096) THEN   // auto refill when below certain level
             oDispense_Done := true;
             State := 2;
         ELSIF (tTimer.Q) THEN
