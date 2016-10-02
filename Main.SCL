@@ -111,7 +111,7 @@ CoreM3(         iRecipeBCD1         := iM3Recipe1,
                 iRequest            := iM3Request,
                 iTrackPos           := 16
 );
-HMIJobAdder(); // HMI sets parameters
+HMIJobAdder(); // Add job to queue with recipe selector on HMI
 
 IF ((mySandCar.State = 1) AND (myMixCar.State = 1) AND NOT Queue.fEmpty) THEN
     returnval := popJob(peekOnly := false, oJob := currentJob);

@@ -222,14 +222,16 @@ IF (iRequest AND NOT fRequest) THEN
     END_IF;
     myJob := Recipes.SM[recipe];
     myJob.Destination := iTrackPos;
-    IF (weight > 0) THEN
-        myJob.silica_kg := myJob.silica_kg * weight * 2;
-        myJob.chromite_kg := myJob.chromite_kg * weight * 2;
-        myJob.oxide_kg := myJob.oxide_kg * weight * 2;
-        myJob.resin_kg := myJob.resin_kg * weight * 2;
-        myJob.Destination := iTrackPos;
+    IF NOT ((myJob.silica_kg <= 0.0 AND myJob.chromite_kg <= 0.0 AND myJob.oxide_kg <= 0.0) OR myJob.resin_kg <= 0.0) THEN
+        IF (weight > 0) THEN
+            myJob.silica_kg := myJob.silica_kg * weight * 2;
+            myJob.chromite_kg := myJob.chromite_kg * weight * 2;
+            myJob.oxide_kg := myJob.oxide_kg * weight * 2;
+            myJob.resin_kg := myJob.resin_kg * weight * 2;
+            myJob.Destination := iTrackPos;
+        END_IF;
+        statusAddJob := addJob(iJob := myJob);
     END_IF;
-    statusAddJob := addJob(iJob := myJob);
 END_IF;
 fRequest := iRequest;
 END_FUNCTION_BLOCK
@@ -255,14 +257,16 @@ IF (iClearQueue AND NOT (Queue.fEmpty)) THEN
 ELSIF (iRequest AND NOT fRequest) THEN
     myJob := Recipes.SM[recipe];
     myJob.Destination := iTrackPos;
-    IF (weight > 0) THEN
-        myJob.silica_kg := myJob.silica_kg * weight * 2;
-        myJob.chromite_kg := myJob.chromite_kg * weight * 2;
-        myJob.oxide_kg := myJob.oxide_kg * weight * 2;
-        myJob.resin_kg := myJob.resin_kg * weight * 2;
-        myJob.Destination := iTrackPos;
+    IF NOT ((myJob.silica_kg <= 0.0 AND myJob.chromite_kg <= 0.0 AND myJob.oxide_kg <= 0.0) OR myJob.resin_kg <= 0.0) THEN
+        IF (weight > 0) THEN
+            myJob.silica_kg := myJob.silica_kg * weight * 2;
+            myJob.chromite_kg := myJob.chromite_kg * weight * 2;
+            myJob.oxide_kg := myJob.oxide_kg * weight * 2;
+            myJob.resin_kg := myJob.resin_kg * weight * 2;
+            myJob.Destination := iTrackPos;
+        END_IF;
+        statusAddJob := addJob(iJob := myJob);
     END_IF;
-    statusAddJob := addJob(iJob := myJob);
 END_IF;
 fRequest := iRequest;
 END_FUNCTION_BLOCK

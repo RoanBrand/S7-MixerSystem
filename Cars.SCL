@@ -453,6 +453,9 @@ CASE State OF
         IF (oldState <> State) THEN
             tTimer(IN := false);
             qMixCarMixer := true;
+            IF (myJob.preMixTime = t#0s) THEN
+                myJob.preMixTime := t#1ms;
+            END_IF;
             myTrack.desiredPos := 2;
             oldState := State;
         END_IF;
