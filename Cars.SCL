@@ -149,6 +149,7 @@ CASE State OF
     0 : // Go to Home Position
         IF (oldState <> State) THEN
             oAlarmsOut := W#16#0000;
+            oComm_MixerCar := 0;
             myTrack.desiredPos := 1;
             oldState := State;
         END_IF;
@@ -368,6 +369,9 @@ CASE State OF
         IF (oldState <> State) THEN
             tTimer(IN := false);
             oAlarmsOut := W#16#0000;
+            oComm_SandCar := 0;
+            oComm_ResinDisp := 0;
+            oComm_DeliveryCar := 0;
             myTrack.desiredPos := 1;
             oldState := State;
         END_IF;
@@ -694,6 +698,7 @@ CASE State OF
     0 : // Go to Home Position (Silica)
         IF (oldState <> State) THEN
             oAlarmsOut := W#16#0000;
+            oComm_MixerCar := 0;
             myTrack.desiredPos := 2;
             oldState := State;
         END_IF;
