@@ -116,8 +116,7 @@ VAR_OUTPUT
     oAlarms[3]  ->  "Car taking too long to reach destination"
     oAlarms[4]  ->  "Dump valve feedback sensors interlock"
     oAlarms[5]  ->  "Dump valve not opening in time"
-    oAlarms[6]  ->  "Dump valve not closing in time" 
-    oAlarms[7]  ->  "Mixer Motor Overload Tripped" *) // why is this here?
+    oAlarms[6]  ->  "Dump valve not closing in time" *)
 END_VAR
 VAR
     oldState : INT := -1;       // Last state
@@ -144,7 +143,6 @@ oAlarms[1] := NOT iDelCar_VSDHealth;
 oAlarms[2] := myTrack.oAlarm_Position;
 oAlarms[3] := myTrack.oAlarm_TO;
 oAlarms[4] := iDelCar_Piston_Open AND iDelCar_Piston_Closed;
-oAlarms[7] := iMixCarMixerOL;
 
 CASE State OF
     0 : // Go to Home Position
@@ -327,7 +325,8 @@ VAR_OUTPUT
     oAlarms[4]  ->  "Dump valve feedback sensors interlock"
     oAlarms[5]  ->  "Dump valve not opening in time"
     oAlarms[6]  ->  "Dump valve not closing in time" 
-    oAlarms[7]  ->  "SandCar not dumping anymore. User to Dump on HMI"  *)
+    oAlarms[7]  ->  "SandCar not dumping anymore. User to Dump on HMI"
+    oAlarms[8]  ->  "Mixer Motor Overload Tripped" *)
 (* HMI *) 
     oHandAdditionReq : BOOL;
 END_VAR
@@ -354,6 +353,7 @@ oAlarms[1] := NOT iMixCar_VSDHealth;
 oAlarms[2] := myTrack.oAlarm_Position;
 oAlarms[3] := myTrack.oAlarm_TO;
 oAlarms[4] := iMixCar_Piston_Open AND iMixCar_Piston_Closed;
+oAlarms[8] := iMixCarMixerOL;
 
 CASE State OF
     0 : // Go to Home Position

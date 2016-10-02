@@ -35,8 +35,8 @@ VAR_INPUT
     iValve_Flow_Tank : BOOL;        // Piston connected to Tank
     iValve_Flow_Out : BOOL;         // Piston connected to Output Valve
 (* Other *)
-    iDispense_Amount : REAL;        // Kg Resin to dispense
-    enablePour : BOOL;
+    iDispense_Amount : REAL;		// Kg Resin to dispense
+    enablePour : BOOL;				// explicitly enable resin pour
 END_VAR
 VAR_IN_OUT
     iDispense_Start : BOOL;         // Set once to initiate dispense
@@ -225,8 +225,8 @@ VAR_OUTPUT
 (* Alarms *)
     oAlarmsOut : WORD;
     oAlarms AT oAlarmsOut : ARRAY[0..15] OF BOOL;
-(*  oAlarms[0]  ->  "oAlarm_CalVA cannot confirm Valve to Cal"
-    oAlarms[1]  ->  "oAlarm_CalVB cannot confirm Valve to Cal"
+(*  oAlarms[0]  ->  "Cannot confirm switched A out to Calibration output"
+    oAlarms[1]  ->  "Cannot confirm switched B out to Calibration output"
     oAlarms[2]  ->  "Resin A divert to Floor mixer valve not switched"
     oAlarms[3]  ->  "Resin B divert to Floor mixer valve not switched"
     oAlarms[4]  ->  "Resin A divert to Mixer Car valve not switched" 
@@ -242,7 +242,7 @@ VAR
     PistonA : ResinCylinder;
     PistonB : ResinCylinder;
     tTimer : SFB4;
-    divertedDump: BOOL; // If true we are pushing to the Floorstanding mixer
+    divertToFLMix: BOOL; // If true we are pushing to the Floorstanding mixer
 END_VAR
 BEGIN
 CASE State OF
@@ -255,25 +255,60 @@ CASE State OF
         tTimer(IN := true, PT := t#60m);
         // need ready condition check for 2 p
         IF (iCalMode) THEN
-            oComm_MixerCar := 0;
-            State := 3;
+            State := 4;
         ELSIF (tTimer.Q) THEN
-            oComm_MixerCar := 0;
             State := 5;
         ELSIF (iComm_MixerCar = 2) THEN
-            State := 10;
+            State := 1;
         ELSIF (hmiFloorMixerDump) THEN
-            divertedDump := true;
-            State := 10;
+            divertToFLMix := true;
+            State := 1;
         END_IF;
         IF (oldState <> State) THEN
             ;
         END_IF;
-    1 : // Dispensing Resin B into MixerCar
+    1 : // Preparing for dispense
+        IF (oldState <> State) THEN
+            tTimer(IN := false);
+            IF (divertToFLMix) THEN
+                qResinA_Divert := true;
+                qResinB_Divert := true;
+                PistonA.iDispense_Amount := hmiFLMResinInput;
+                PistonB.iDispense_Amount := hmiFLMResinInput;
+            ELSE
+                qResinA_ReleaseValve := true;
+                qResinB_ReleaseValve := true;
+                PistonA.iDispense_Amount := iJob.resin_kg;
+                PistonB.iDispense_Amount := iJob.resin_kg;
+            END_IF;
+            oldState := State;
+        END_IF;
+        tTimer(IN := true, PT := t#4s);
+        IF (divertToFLMix) THEN
+            oAlarms[2] := tTimer.Q AND NOT iResinADivertFL;
+            oAlarms[3] := tTimer.Q AND NOT iResinBDivertFL;
+            oAlarms[8] := tTimer.Q AND NOT iResinAFLMixDumpOpen;
+            oAlarms[9] := tTimer.Q AND NOT iResinBFLMixDumpOpen;
+            IF (iResinADivertFL AND iResinBDivertFL AND iResinAFLMixDumpOpen AND iResinBFLMixDumpOpen) THEN
+                State := 2;
+            END_IF;
+        ELSE
+            oAlarms[4] := tTimer.Q AND NOT iResinADivertMixCar;
+            oAlarms[5] := tTimer.Q AND NOT iResinBDivertMixCar;
+            oAlarms[6] := tTimer.Q AND NOT iResinAMixCarDumpOpen;
+            oAlarms[7] := tTimer.Q AND NOT iResinBMixCarDumpOpen;
+            IF (iResinADivertMixCar AND iResinBDivertMixCar AND iResinAMixCarDumpOpen AND iResinBMixCarDumpOpen) THEN
+            	oComm_MixerCar := 3;
+                State := 2;
+            END_IF;
+        END_IF;
+        IF (oldState <> State) THEN
+            oAlarmsOut := W#16#00; // reset alarms
+        END_IF;
+    2 : // Dispensing Resin B
         IF (oldState <> State) THEN
             intState := 0;
             PistonB.iDispense_Start := true;
-            oComm_MixerCar := 3;
             oldState := State;
         END_IF;
         CASE intState OF
@@ -283,19 +318,16 @@ CASE State OF
                 END_IF;
             1 : // wait for pistons to finish
                 IF (PistonB.oDispense_Done) THEN
-                    State := 2;
+                    State := 3;
                 END_IF;
         END_CASE;   
         IF (oldState <> State) THEN
-            oComm_MixerCar := 0;
+            ;
         END_IF;
-    2 : // Dispensing Resin A into MixerCar
+    3 : // Dispensing Resin A
         IF (oldState <> State) THEN
             intState := 0;
             PistonA.iDispense_Start := true;
-            IF NOT divertedDump THEN
-                oComm_MixerCar := 3;
-            END_IF;
             oldState := State;
         END_IF;
         CASE intState OF
@@ -305,7 +337,7 @@ CASE State OF
                 END_IF;
             1 : // wait for pistons to finish
                 IF (PistonA.oDispense_Done) THEN    
-                    IF NOT divertedDump THEN
+                    IF (NOT divertToFLMix) THEN
                         oComm_MixerCar := 4;
                     END_IF;
                     tTimer(IN := false);
@@ -323,9 +355,9 @@ CASE State OF
             qResinB_ReleaseValve := false;
             qResinA_Divert := false;
             qResinB_Divert := false;
-            divertedDump := false;
+            divertToFLMix := false;
         END_IF;
-    3 : // Calibration
+    4 : // Calibration
         IF (oldState <> State) THEN
             //intState := 0;
             tTimer(IN := false);
@@ -351,6 +383,7 @@ CASE State OF
             intState := 0;
             tTimer(IN := false);
             qResinA_OutToCal := true; // B does not get hard
+            oComm_MixerCar := 0;
             oldState := State;
         END_IF;
         CASE intState OF
@@ -378,51 +411,8 @@ CASE State OF
             qResinA_OutToCal := false;
             qResinA_ReleaseValve := false;
         END_IF;
-    10: // Get ready
-        IF (oldState <> State) THEN
-            tTimer(IN := false);
-            IF (divertedDump) THEN
-                qResinA_Divert := true;
-                qResinB_Divert := true;
-                PistonA.iDispense_Amount := hmiFLMResinInput;
-                PistonB.iDispense_Amount := hmiFLMResinInput;
-            ELSE
-                qResinA_ReleaseValve := true;
-                qResinB_ReleaseValve := true;
-                PistonA.iDispense_Amount := iJob.resin_kg;
-                PistonB.iDispense_Amount := iJob.resin_kg;
-            END_IF;
-            oldState := State;
-        END_IF;
-        tTimer(IN := true, PT := t#4s);
-        IF (divertedDump) THEN
-            oAlarms[2] := tTimer.Q AND NOT iResinADivertFL;
-            oAlarms[3] := tTimer.Q AND NOT iResinBDivertFL;
-            oAlarms[8] := tTimer.Q AND NOT iResinAFLMixDumpOpen;
-            oAlarms[9] := tTimer.Q AND NOT iResinBFLMixDumpOpen;
-            IF (iResinADivertFL AND iResinBDivertFL AND iResinAFLMixDumpOpen AND iResinBFLMixDumpOpen) THEN
-                State := 1;
-            END_IF;
-        ELSE
-            oAlarms[4] := tTimer.Q AND NOT iResinADivertMixCar;
-            oAlarms[5] := tTimer.Q AND NOT iResinBDivertMixCar;
-            oAlarms[6] := tTimer.Q AND NOT iResinAMixCarDumpOpen;
-            oAlarms[7] := tTimer.Q AND NOT iResinBMixCarDumpOpen;
-            IF (iResinADivertMixCar AND iResinBDivertMixCar AND iResinAMixCarDumpOpen AND iResinBMixCarDumpOpen) THEN
-                State := 1;
-            END_IF;
-        END_IF;
-        IF (oldState <> State) THEN
-            oAlarms[2] := false;
-            oAlarms[3] := false;
-            oAlarms[8] := false;
-            oAlarms[9] := false;
-            oAlarms[4] := false;
-            oAlarms[5] := false;
-            oAlarms[6] := false;
-            oAlarms[7] := false;
-        END_IF;       
 END_CASE;
+
 PistonA(    iTank_Level_High        := iResinA_LevelH,
             iTank_Level_Low         := iResinA_LevelL,
             iValve_Refill_Closed    := iResinA_RefillClosed,
@@ -454,4 +444,5 @@ qResinB_Refill           := PistonB.oValve_Refill_Open;
 qResinB_MotorDwn         := PistonB.oMotor_Down;
 qResinB_MotorUp          := PistonB.oMotor_Up;
 qResinB_OutToValve       := PistonB.oValve_FlowDir;
+
 END_FUNCTION_BLOCK
